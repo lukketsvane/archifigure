@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, Save, AlertCircle, Trash2 } from "lucide-react";
+import { CheckCircle2, Circle, Save, AlertCircle, Trash2, Eye, EyeOff } from "lucide-react";
 import Image from "next/image";
 import type { Prediction, SavedModel } from "@/app/actions";
 import { getSavedModels } from "@/app/actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 
 type PredictionsGridProps = {
   onSelectModel: (meshUrl: string, inputImage?: string, resolution?: number) => void;
@@ -22,6 +23,7 @@ type PredictionsState = {
   activeTab: "replicate" | "stored";
   error: string | null;
   consecutiveErrors: number;
+  showInProgress: boolean; // New state for toggling in-progress visibility
 };
 
 export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsGridProps) => {
@@ -32,6 +34,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
     activeTab: "replicate",
     error: null,
     consecutiveErrors: 0,
+    showInProgress: true, // Show in-progress by default
   });
 
   useEffect(() => {
@@ -75,7 +78,8 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
             }
           });
 
-          const filteredPredictions = showAll
+          // Apply filtering based on showInProgress state rather than showAll prop
+          const filteredPredictions = showAll || state.showInProgress
             ? validPredictions
             : validPredictions.filter((p) => p.status === "succeeded");
 
@@ -139,7 +143,12 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
       mounted = false;
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [state.activeTab, state.consecutiveErrors, showAll]);
+  }, [state.activeTab, state.consecutiveErrors, state.showInProgress, showAll]);
+
+  // Count of in-progress items
+  const inProgressCount = state.predictions.filter(p => 
+    ["starting", "processing"].includes(p.status)
+  ).length;
 
   const renderPredictionCard = (prediction: Prediction) => {
     if (!prediction?.input?.image) return null;
@@ -151,7 +160,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
     return (
       <Card
         key={prediction.id}
-        className={`flex-shrink-0 w-[160px] snap-start ${
+        className={`w-full h-full lg:w-[160px] lg:flex-shrink-0 lg:snap-start ${
           isClickable ? "cursor-pointer transition-transform hover:scale-105 active:scale-95" : "opacity-75"
         }`}
         onClick={() => {
@@ -200,7 +209,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
   const renderSavedModelCard = (model: SavedModel) => (
     <Card
       key={model.id}
-      className="flex-shrink-0 w-[160px] snap-start cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
+      className="w-full h-full lg:w-[160px] lg:flex-shrink-0 lg:snap-start cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
       onClick={() => onSelectModel(model.url, model.input_image, model.resolution)}
     >
       <div className="relative aspect-square">
@@ -211,7 +220,6 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
           className="object-cover rounded-t-lg"
           unoptimized
         />
-        {/* Container for Save and Delete icons */}
         <div className="absolute top-2 right-2 flex gap-1">
           <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center">
             <Save className="w-3 h-3" />
@@ -278,7 +286,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
     }
 
     return (
-      <div className="flex gap-3 overflow-x-auto pb-4 px-4 -mx-4 snap-x snap-mandatory touch-pan-x min-h-[200px]">
+      <div className="grid grid-cols-3 gap-3 p-4 overflow-y-auto max-h-[70vh] lg:flex lg:gap-3 lg:overflow-x-auto lg:pb-4 lg:px-4 lg:-mx-4 lg:snap-x lg:snap-mandatory lg:touch-pan-x lg:min-h-[200px]">
         {items.map((item) =>
           "url" in item
             ? renderSavedModelCard(item as SavedModel)
@@ -301,14 +309,33 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
       }
     >
       <div className="border-b bg-muted/40 px-4">
-        <TabsList className="h-9">
-          <TabsTrigger value="replicate" className="text-xs">
-            Replicate ({state.predictions.length})
-          </TabsTrigger>
-          <TabsTrigger value="stored" className="text-xs">
-            Stored ({state.savedModels.length})
-          </TabsTrigger>
-        </TabsList>
+        <div className="flex items-center justify-between">
+          <TabsList className="h-9">
+            <TabsTrigger value="replicate" className="text-xs">
+              Replicate ({state.predictions.length})
+            </TabsTrigger>
+            <TabsTrigger value="stored" className="text-xs">
+              Stored ({state.savedModels.length})
+            </TabsTrigger>
+          </TabsList>
+          
+          {state.activeTab === "replicate" && inProgressCount > 0 && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() =>
+                setState((prev) => ({
+                  ...prev,
+                  showInProgress: !prev.showInProgress,
+                }))
+              }
+              title={state.showInProgress ? "Hide in-progress models" : "Show in-progress models"}
+            >
+              {state.showInProgress ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            </Button>
+          )}
+        </div>
       </div>
       <TabsContent value="replicate" className="mt-0">
         {renderContent(state.predictions, false)}
