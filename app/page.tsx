@@ -1,4 +1,7 @@
+
 "use client";
+
+
 
 import { useState, useEffect, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,15 +39,22 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 
 import { useDropzone } from "react-dropzone";
 
+interface UploadZoneProps {
+  onUploadComplete: (url: string) => void;
+  onError: (msg: string) => void;
+  currentCount: number;
+  maxImages: number;
+}
+
 function UploadZone({
   onUploadComplete,
   onError,
   currentCount,
   maxImages,
-}) {
+}: UploadZoneProps) {
   const [uploading, setUploading] = useState(false);
-  
-  const handleDrop = async (acceptedFiles) => {
+
+  const handleDrop = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     const allowedCount = Math.min(acceptedFiles.length, maxImages - currentCount);
     if (allowedCount <= 0) {
@@ -73,14 +83,14 @@ function UploadZone({
     );
     setUploading(false);
   };
-  
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleDrop,
     accept: { "image/*": [".png", ".jpg", ".jpeg", ".gif", ".webp"] },
     maxSize: 32 * 1024 * 1024,
     multiple: true,
   });
-  
+
   return (
     <div
       {...getRootProps()}
@@ -100,7 +110,6 @@ function UploadZone({
     </div>
   );
 }
-
 export default function ModelGenerator() {
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);

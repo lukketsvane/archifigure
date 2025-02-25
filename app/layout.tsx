@@ -1,4 +1,3 @@
-// app/layout.tsx
 import "./globals.css";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -12,7 +11,11 @@ export const metadata = {
   description: "Generate 3D human figures for your architectural models",
 };
 
-export default function RootLayout({ children }) {
+interface RootLayoutProps {
+  children: React.ReactNode;
+}
+
+export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en">
       <body className={inter.className}>
