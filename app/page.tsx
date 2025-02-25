@@ -1,10 +1,8 @@
+// app/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ImageGeneration } from "@/components/image-generator";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,19 +13,28 @@ import {
   SelectValue,
   SelectContent,
   SelectItem,
-  SelectLabel,
-  SelectGroup,
-} from "@/components/ui/select"
-
+} from "@/components/ui/select";
 import { ModelViewer } from "@/components/model-viewer";
 import { PredictionsGrid } from "@/components/predictions-grid";
-import { useDropzone } from "react-dropzone";
-import { Upload, Download, X, ChevronLeft } from "lucide-react";
+import { 
+  Upload, 
+  Download, 
+  X, 
+  CheckCircle2, 
+  Image as ImageIcon, 
+  ChevronUp, 
+  ChevronDown,
+  ChevronRight,
+  Settings
+} from "lucide-react";
 import Image from "next/image";
 import { generateModel, uploadImage } from "./actions";
 import { MobileControls } from "@/components/mobile-controls";
 import PasswordLock from "@/components/password-lock";
-import { CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+import { ImageGeneration } from "@/components/image-generation";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useDropzone } from "react-dropzone";
 
 function UploadZone({
   onUploadComplete,
@@ -36,7 +43,8 @@ function UploadZone({
   maxImages,
 }) {
   const [uploading, setUploading] = useState(false);
-  const onDrop = async (acceptedFiles) => {
+  
+  const handleDrop = async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return;
     const allowedCount = Math.min(acceptedFiles.length, maxImages - currentCount);
     if (allowedCount <= 0) {
@@ -67,7 +75,7 @@ function UploadZone({
   };
   
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
+    onDrop: handleDrop,
     accept: { "image/*": [".png", ".jpg", ".jpeg", ".gif", ".webp"] },
     maxSize: 32 * 1024 * 1024,
     multiple: true,
@@ -96,25 +104,51 @@ function UploadZone({
 export default function ModelGenerator() {
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);
+  const [imageGenerating, setImageGenerating] = useState(false);
   const [imageUrls, setImageUrls] = useState([]);
   const [modelUrl, setModelUrl] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const [showPredictions, setShowPredictions] = useState(false);
+  const [pendingSubmissions, setPendingSubmissions] = useState([]);
+  const [autoGenerateMeshes, setAutoGenerateMeshes] = useState(false);
+  const [gridExpanded, setGridExpanded] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [generationPrompts, setGenerationPrompts] = useState([]);
   const [formData, setFormData] = useState({
     steps: 50,
     guidance_scale: 5.5,
-    seed: 1234,
-    octree_resolution: 512,
+    seed: Math.floor(Math.random() * 10000),
+    octree_resolution: 256,
     remove_background: true,
   });
   const [cooldown, setCooldown] = useState(0);
-  const [timeoutId, setTimeoutId] = useState();
+  const [timeoutId, setTimeoutId] = useState(null);
 
-  // Process predictions concurrently (limit 10)
+  // Reset cooldown timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, [timeoutId]);
+
+  // Process predictions concurrently
   async function processPredictionsConcurrently(urls, concurrency) {
     const results = [];
-    let currentIndex = 0;
+    let currentIndex = 0; // Fixed the typo here
+    
+    // Create pending submission cards
+    const newPendingSubmissions = urls.map((url, idx) => ({
+      id: `pending-${Date.now()}-${idx}`,
+      status: "starting",
+      input: { 
+        image: url,
+        octree_resolution: formData.octree_resolution
+      },
+      created_at: new Date().toISOString()
+    }));
+    
+    setPendingSubmissions(prev => [...newPendingSubmissions, ...prev]);
+    
     async function worker() {
       while (currentIndex < urls.length) {
         const index = currentIndex++;
@@ -125,39 +159,95 @@ export default function ModelGenerator() {
         }
       }
     }
+    
     const numWorkers = Math.min(concurrency, urls.length);
     const workers = [];
     for (let i = 0; i < numWorkers; i++) {
       workers.push(worker());
     }
+    
     await Promise.all(workers);
     return results;
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (imageUrls.length === 0 || cooldown > 0) return;
-    setLoading(true);
-    setError("");
-    setSuccess(false);
+  // Generate images from prompts
+  const generateImages = async (prompts) => {
+    if (!prompts || prompts.length === 0) return;
+    
+    setImageGenerating(true);
+    setGenerationPrompts(prompts);
+    
     try {
-      const results = await processPredictionsConcurrently(imageUrls, 10);
-      const allFailed = results.every((r) => r.error);
-      if (allFailed) {
-        setError("Generation failed");
-      } else {
-        setSuccess(true);
-        setTimeout(() => setSuccess(false), 5000);
+      // Call the API to generate images
+      const response = await fetch("/api/generate-images-batch", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          prompts, 
+          aspect_ratio: "1:1",
+          safety_filter_level: "block_only_high" 
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Image generation failed");
       }
-      setCooldown(120);
-      if (timeoutId) clearTimeout(timeoutId);
-      const id = setTimeout(() => setCooldown(0), 120000);
-      setTimeoutId(id);
-      setImageUrls([]);
-    } catch (_) {
-      setError("Generation failed");
+
+      const data = await response.json();
+      
+      if (data.imageUrls && data.imageUrls.length > 0) {
+        setImageUrls(data.imageUrls);
+        toast.success(`Generated ${data.imageUrls.length} images`);
+      }
+    } catch (error) {
+      setError("Failed to generate images: " + error.message);
+      toast.error("Image generation failed: " + error.message);
     } finally {
-      setLoading(false);
+      setImageGenerating(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
+    
+    // If we have images already, generate 3D models
+    if (imageUrls.length > 0 && !cooldown) {
+      setLoading(true);
+      setError("");
+      setSuccess(false);
+      
+      try {
+        const results = await processPredictionsConcurrently(imageUrls, 10);
+        const allFailed = results.every((r) => r.error);
+        
+        if (allFailed) {
+          setError("Generation failed");
+          toast.error("3D model generation failed");
+        } else {
+          setSuccess(true);
+          toast.success("3D model generation started!");
+          setTimeout(() => setSuccess(false), 5000);
+        }
+        
+        setCooldown(120);
+        if (timeoutId) clearTimeout(timeoutId);
+        const id = setTimeout(() => setCooldown(0), 120000);
+        setTimeoutId(id);
+        setImageUrls([]);
+      } catch (err) {
+        setError("Generation failed");
+        toast.error("Error: " + (err.message || "Unknown error"));
+      } finally {
+        setLoading(false);
+      }
+    } else if (generationPrompts.length > 0) {
+      // First generate images if we have prompts but no images
+      await generateImages(generationPrompts);
+    } else {
+      toast.error("Please either upload images or generate them from prompts first");
     }
   };
 
@@ -171,290 +261,326 @@ export default function ModelGenerator() {
     setImageUrls((prev) => prev.filter((img) => img !== url));
   };
 
-  const handleImagesGenerated = (urls) => {
-    setImageUrls(urls);
-    setActiveTab("upload");
+  const handlePrompts = (prompts) => {
+    setGenerationPrompts(prompts);
+  };
+  
+  const handleImageGenerationSubmit = (submissions) => {
+    if (submissions && submissions.length > 0) {
+      setPendingSubmissions(prev => [...submissions, ...prev]);
+    }
   };
 
-  const Controls = () => (
-    <div className="space-y-3">
-      <Tabs defaultValue="upload" value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid grid-cols-2 mb-2">
-          <TabsTrigger value="upload">Upload</TabsTrigger>
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="upload">
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="space-y-2">
-              {imageUrls.length === 0 ? (
-                <>
-                  <UploadZone
-                    onUploadComplete={(url) => setImageUrls((prev) => [...prev, url])}
-                    onError={setError}
-                    currentCount={imageUrls.length}
-                    maxImages={10}
-                  />
-                  <div className="flex items-center gap-2">
-                    <div className="h-px flex-1 bg-border" />
-                    <span className="text-xs text-muted-foreground">OR</span>
-                    <div className="h-px flex-1 bg-border" />
-                  </div>
-                  <Input
-                    type="url"
-                    placeholder="Image URL"
-                    onBlur={(e) => {
-                      const url = e.target.value.trim();
-                      if (url && !imageUrls.includes(url)) {
-                        setImageUrls((prev) => (prev.length < 10 ? [...prev, url] : prev));
-                        e.target.value = "";
-                      }
-                    }}
-                    className="h-9"
-                  />
-                </>
-              ) : (
-                <div className="relative rounded-lg border overflow-hidden">
-                  <div className="grid grid-cols-2 gap-2 p-2 h-40 w-full overflow-auto">
-                    {imageUrls.map((url) => (
-                      <div key={url} className="relative border rounded">
-                        <div className="relative aspect-square">
-                          <Image
-                            src={url || "/placeholder.svg"}
-                            alt="Input"
-                            fill
-                            className="object-contain"
-                            unoptimized
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="absolute top-1 right-1 h-4 w-4 bg-background/50 hover:bg-background/75"
-                          onClick={() => removeImage(url)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                  {imageUrls.length < 10 && (
-                    <div className="mt-2">
-                      <UploadZone
-                        onUploadComplete={(url) => setImageUrls((prev) => [...prev, url])}
-                        onError={setError}
-                        currentCount={imageUrls.length}
-                        maxImages={10}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            
-            {/* Model generation settings */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="steps" className="text-xs">Steps</Label>
-                <span className="text-xs text-muted-foreground">{formData.steps}</span>
-              </div>
-              <Slider
-                id="steps"
-                min={20}
-                max={50}
-                step={1}
-                value={[formData.steps]}
-                onValueChange={([steps]) => setFormData({ ...formData, steps })}
-                className="py-0.5"
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="guidance" className="text-xs">Guidance</Label>
-                <span className="text-xs text-muted-foreground">{formData.guidance_scale}</span>
-              </div>
-              <Slider
-                id="guidance"
-                min={1}
-                max={20}
-                step={0.1}
-                value={[formData.guidance_scale]}
-                onValueChange={([guidance_scale]) => setFormData({ ...formData, guidance_scale })}
-                className="py-0.5"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="seed" className="text-xs">Seed</Label>
-                <Input
-                  id="seed"
-                  type="number"
-                  value={formData.seed}
-                  onChange={(e) => setFormData({ ...formData, seed: Number(e.target.value) })}
-                  className="h-8"
-                  required
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="resolution" className="text-xs">Resolution</Label>
-                <Select
-                  value={formData.octree_resolution.toString()}
-                  onValueChange={(value) => setFormData({ ...formData, octree_resolution: Number(value) })}
-                >
-                  <SelectTrigger id="resolution" className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="256">256</SelectItem>
-                    <SelectItem value="384">384</SelectItem>
-                    <SelectItem value="512">512</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="background"
-                checked={formData.remove_background}
-                onCheckedChange={(checked) =>
-                  setFormData({ ...formData, remove_background: checked })
-                }
-              />
-              <Label htmlFor="background" className="text-xs">Remove background</Label>
-            </div>
-            <Button
-              type="submit"
-              className="w-full h-8 text-sm relative overflow-hidden"
-              disabled={loading || imageUrls.length === 0 || cooldown > 0}
-            >
-              {loading ? (
-                "Generating..."
-              ) : cooldown > 0 ? (
-                <>
-                  Wait {formatCooldown(cooldown)}
-                  <div
-                    className="absolute bottom-0 left-0 h-1 bg-primary/20"
-                    style={{ width: `${(cooldown / 120) * 100}%`, transition: "width 1s linear" }}
-                  />
-                </>
-              ) : (
-                "Generate 3D Model"
-              )}
-            </Button>
-          </form>
-        </TabsContent>
-        
-        <TabsContent value="generate">
-          <ImageGeneration onImagesGenerated={handleImagesGenerated} />
-        </TabsContent>
-      </Tabs>
-      
-      {error && (
-        <div className="rounded-md bg-destructive/10 p-2 text-xs text-destructive text-center">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="rounded-md bg-green-500/10 p-2 text-xs text-green-600 text-center flex items-center justify-center gap-1.5">
-          <CheckCircle2 className="w-3 h-3" />
-          Generation started! Check back in a few minutes
-        </div>
-      )}
-    </div>
-  );
+  // Color scheme inspired by Figma
+  const figmaColors = {
+    purple: "#A259FF",
+    red: "#F24E1E",
+    blue: "#1ABCFE",
+    green: "#0ACF83",
+  };
 
   return (
     <PasswordLock>
-      <div className="relative h-[100dvh] w-full overflow-hidden">
-        {/* Mobile View */}
-        <div className="lg:hidden flex flex-col h-full">
-          {modelUrl === "" ? (
-            // No model selected: show gallery grid by default
-            <div className="flex-1 overflow-y-auto">
-              <PredictionsGrid
-                onSelectModel={(meshUrl, inputImage, resolution) => {
-                  setModelUrl(meshUrl);
-                  if (inputImage) setImageUrls([inputImage]);
-                  if (resolution)
-                    setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
-                }}
-              />
-            </div>
-          ) : (
-            <>
-              <div className="absolute inset-0">
-                <ModelViewer
-                  url={modelUrl}
-                  inputImage={imageUrls[0]}
-                  resolution={formData.octree_resolution}
-                />
-              </div>
-              <MobileControls onGalleryClick={() => setModelUrl("")}>
-                <Controls />
-              </MobileControls>
-              <div className="absolute top-3 right-3 flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 bg-background/50 backdrop-blur-sm hover:bg-background/75"
-                  onClick={() => setModelUrl("")}
-                >
-                  Gallery
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 bg-background/50 backdrop-blur-sm hover:bg-background/75 px-2"
-                  onClick={() => {
-                    const link = document.createElement("a");
-                    link.href = modelUrl;
-                    link.download = "model.glb";
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }}
-                >
-                  <Download className="h-3 w-3" />
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-        {/* Desktop View */}
-        <div className="hidden lg:flex flex-col h-full">
-          <div className="flex-1 grid lg:grid-cols-[300px,1fr] gap-3 p-3">
-            <div className="space-y-3">
-              <Controls />
-            </div>
-            <Card className="relative">
-              {modelUrl ? (
-                <div className="absolute inset-0">
-                  <ModelViewer
-                    url={modelUrl}
-                    inputImage={imageUrls[0]}
-                    resolution={formData.octree_resolution}
-                  />
-                </div>
-              ) : (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  {loading && (
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  )}
-                </div>
-              )}
+      <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
+        {/* Main content area */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+          {/* Left side panel */}
+          <div className="w-full lg:w-[350px] lg:min-w-[350px] p-4 overflow-y-auto border-r">
+            <Card className="p-4 border">
+              <Tabs defaultValue="upload">
+                <TabsList className="grid grid-cols-2 mb-4">
+                  <TabsTrigger value="upload">Upload</TabsTrigger>
+                  <TabsTrigger value="instructions">Instructions</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="upload" className="space-y-4">
+                  <form onSubmit={handleSubmit} className="space-y-3">
+                    <div className="space-y-2">
+                      <UploadZone
+                        onUploadComplete={(url) => setImageUrls((prev) => [...prev, url])}
+                        onError={(msg) => {
+                          setError(msg);
+                          toast.error(msg);
+                        }}
+                        currentCount={imageUrls.length}
+                        maxImages={10}
+                      />
+                      
+                      {/* Image Generation Component */}
+                      <div className="pt-2">
+                        <ImageGeneration 
+                          onPrompts={handlePrompts}
+                          onSubmit={handleImageGenerationSubmit}
+                          useMostPermissiveSafetyLevel={true}
+                          useImagen3={true}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Collapsible Settings */}
+                    <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="flex w-full justify-start px-2 text-xs text-muted-foreground hover:text-foreground">
+                          <Settings className="h-3.5 w-3.5 mr-2" />
+                          <span>Advanced Settings</span>
+                          <ChevronRight className={`h-3.5 w-3.5 ml-auto transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
+                        </Button>
+                      </CollapsibleTrigger>
+                      
+                      <CollapsibleContent className="pt-2 space-y-3">
+                        <div className="space-y-2 pt-1">
+                          <Slider
+                            id="steps"
+                            min={20}
+                            max={50}
+                            step={1}
+                            value={[formData.steps]}
+                            onValueChange={([steps]) => setFormData({ ...formData, steps })}
+                            className="py-0.5"
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Steps: {formData.steps}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Slider
+                            id="guidance"
+                            min={1}
+                            max={20}
+                            step={0.1}
+                            value={[formData.guidance_scale]}
+                            onValueChange={([guidance_scale]) => setFormData({ ...formData, guidance_scale })}
+                            className="py-0.5"
+                          />
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>Guidance: {formData.guidance_scale.toFixed(1)}</span>
+                          </div>
+                        </div>
+                        
+                        <div className="flex justify-between gap-2">
+                          <div className="flex-1">
+                            <div className="flex">
+                              <input
+                                type="number"
+                                value={formData.seed}
+                                onChange={(e) => setFormData({ ...formData, seed: Number(e.target.value) })}
+                                className="h-8 w-full bg-background rounded-l-md border border-input px-3 py-2 text-xs ring-offset-background"
+                              />
+                              <Button 
+                                type="button"
+                                size="icon" 
+                                variant="outline" 
+                                className="h-8 w-8 rounded-l-none"
+                                onClick={() => setFormData({...formData, seed: Math.floor(Math.random() * 10000)})}
+                              >
+                                🎲
+                              </Button>
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">Seed</div>
+                          </div>
+                          
+                          <div className="flex-1">
+                            <Select
+                              value={formData.octree_resolution.toString()}
+                              onValueChange={(value) => setFormData({ ...formData, octree_resolution: Number(value) })}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="256">256 - Fast</SelectItem>
+                                <SelectItem value="384">384 - Medium</SelectItem>
+                                <SelectItem value="512">512 - Detailed</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="text-xs text-muted-foreground mt-1">Quality</div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="background"
+                            checked={formData.remove_background}
+                            onCheckedChange={(checked) =>
+                              setFormData({ ...formData, remove_background: checked })
+                            }
+                          />
+                          <span className="text-xs">Remove background</span>
+                        </div>
+                        
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="autoGenerate"
+                            checked={autoGenerateMeshes}
+                            onCheckedChange={setAutoGenerateMeshes}
+                          />
+                          <span className="text-xs">Automatically generate meshes</span>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    
+                    <Button
+                      type="submit"
+                      className="w-full h-10 text-sm relative overflow-hidden"
+                      style={{ 
+                        background: loading || cooldown > 0 ? "#666" : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
+                      }}
+                      disabled={loading || cooldown > 0 || (imageUrls.length === 0 && generationPrompts.length === 0)}
+                    >
+                      <span className="mr-auto">
+                        {loading ? (
+                          <span className="flex items-center">
+                            <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            Generating 3D...
+                          </span>
+                        ) : imageGenerating ? (
+                          <span className="flex items-center">
+                            <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                            Generating Images...
+                          </span>
+                        ) : cooldown > 0 ? (
+                          <>
+                            Wait {formatCooldown(cooldown)}
+                            <div
+                              className="absolute bottom-0 left-0 h-1 bg-white/30"
+                              style={{ width: `${(cooldown / 120) * 100}%`, transition: "width 1s linear" }}
+                            />
+                          </>
+                        ) : (
+                          `Generate ${imageUrls.length > 0 ? "3D Model" : "Images & 3D"}`
+                        )}
+                      </span>
+                    </Button>
+                  </form>
+                </TabsContent>
+                
+                <TabsContent value="instructions" className="space-y-4">
+                  <div className="space-y-3 text-sm">
+                    <h2 className="text-lg font-medium">How to use ArchiFigure.io</h2>
+                    
+                    <div className="space-y-2">
+                      <h3 className="font-medium">1. Get an image</h3>
+                      <p className="text-muted-foreground text-xs">Upload your own image of a person, or use our text-to-image generator to create one.</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="font-medium">2. Generate 3D model</h3>
+                      <p className="text-muted-foreground text-xs">Once you have an image, click "Generate 3D Model" to create a 3D figure.</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="font-medium">3. View and download</h3>
+                      <p className="text-muted-foreground text-xs">When processing is complete, view your 3D model and download the GLB file for use in your architectural projects.</p>
+                    </div>
+                    
+                    <div className="bg-muted/50 p-3 rounded-md">
+                      <div className="flex gap-2">
+                        <div className="text-xs">
+                          <p className="font-medium">Best practices:</p>
+                          <ul className="list-disc ml-4 mt-1 space-y-1 text-muted-foreground">
+                            <li>Use images with a plain background</li>
+                            <li>Ensure the full body is visible</li>
+                            <li>For architectural scale figures, standing poses work best</li>
+                            <li>Use 256 resolution for faster generation, 512 for more detail</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </Card>
           </div>
-          <div className="border-t bg-muted/40">
-            <div className="flex items-center gap-2 py-2 px-4"></div>
-            <PredictionsGrid
-              onSelectModel={(meshUrl, inputImage, resolution) => {
-                setModelUrl(meshUrl);
-                if (inputImage) setImageUrls([inputImage]);
-                if (resolution)
-                  setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
-              }}
-            />
+          
+          {/* Right side content */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 p-4 overflow-y-auto relative">
+              <Card className="w-full h-full relative overflow-hidden border">
+                {modelUrl ? (
+                  <div className="absolute inset-0">
+                    <ModelViewer
+                      url={modelUrl}
+                      inputImage={imageUrls[0]}
+                      resolution={formData.octree_resolution}
+                    />
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
+                    {loading || imageGenerating ? (
+                      <div className="flex flex-col items-center space-y-2">
+                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                        <p className="text-sm text-muted-foreground">
+                          {loading ? "Generating 3D models..." : "Generating images..."}
+                        </p>
+                      </div>
+                    ) : imageUrls.length > 0 ? (
+                      <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
+                        {imageUrls.map((url) => (
+                          <div key={url} className="relative border rounded aspect-square overflow-hidden">
+                            <Image
+                              src={url || "/placeholder.svg"}
+                              alt="Input"
+                              fill
+                              className="object-cover"
+                              unoptimized
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/70 hover:bg-background/90"
+                              onClick={() => removeImage(url)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
+                        <div className="h-16 w-16 rounded-full bg-muted/60 flex items-center justify-center">
+                          <ImageIcon className="h-8 w-8 text-muted-foreground/60" />
+                        </div>
+                        <h3 className="text-lg font-medium">No Model Selected</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Upload an image or use the generator to create a 3D figure
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            </div>
+            
+            {/* Collapsible predictions grid */}
+            <div className={`border-t transition-all duration-300 ease-in-out ${gridExpanded ? 'h-[70vh]' : 'h-12'}`}>
+              <div className="flex items-center justify-between px-4 h-12 bg-muted/40">
+                <span className="text-sm font-medium">Gallery</span>
+                <Button
+                  variant="ghost" 
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setGridExpanded(!gridExpanded)}
+                >
+                  {gridExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                </Button>
+              </div>
+              
+              {gridExpanded && (
+                <div className="h-[calc(70vh-3rem)] overflow-hidden">
+                  <PredictionsGrid
+                    onSelectModel={(meshUrl, inputImage, resolution) => {
+                      setModelUrl(meshUrl);
+                      if (inputImage) setImageUrls([inputImage]);
+                      if (resolution)
+                        setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
+                    }}
+                    pendingSubmissions={pendingSubmissions}
+                  />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

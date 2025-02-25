@@ -11,31 +11,56 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 
+type PendingSubmission = {
+  id: string;
+  status: string;
+  input: { image: string };
+  created_at: string;
+  prompt: string;
+};
+
 type PredictionsGridProps = {
   onSelectModel: (meshUrl: string, inputImage?: string, resolution?: number) => void;
   showAll?: boolean;
+  pendingSubmissions?: PendingSubmission[];
 };
 
 type PredictionsState = {
   predictions: Prediction[];
   savedModels: SavedModel[];
+  pendingSubmissions: PendingSubmission[];
   loading: boolean;
   activeTab: "replicate" | "stored";
   error: string | null;
   consecutiveErrors: number;
-  showInProgress: boolean; // New state for toggling in-progress visibility
+  showInProgress: boolean;
 };
 
-export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsGridProps) => {
+export const PredictionsGrid = ({ 
+  onSelectModel, 
+  showAll = false, 
+  pendingSubmissions = [] 
+}: PredictionsGridProps) => {
   const [state, setState] = useState<PredictionsState>({
     predictions: [],
     savedModels: [],
+    pendingSubmissions: [],
     loading: true,
     activeTab: "replicate",
     error: null,
     consecutiveErrors: 0,
-    showInProgress: true, // Show in-progress by default
+    showInProgress: true,
   });
+
+  // Update pending submissions when prop changes
+  useEffect(() => {
+    if (pendingSubmissions.length > 0) {
+      setState(prev => ({
+        ...prev,
+        pendingSubmissions: [...pendingSubmissions, ...prev.pendingSubmissions]
+      }));
+    }
+  }, [pendingSubmissions]);
 
   useEffect(() => {
     let mounted = true;
@@ -83,10 +108,17 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
             ? validPredictions
             : validPredictions.filter((p) => p.status === "succeeded");
 
+          // Remove pending submissions that now appear in the validPredictions
+          const apiIds = validPredictions.map(p => p.id);
+          const updatedPendingSubmissions = state.pendingSubmissions.filter(
+            ps => !ps.id.includes("pending-") || !apiIds.includes(ps.id)
+          );
+
           if (mounted) {
             setState((prev) => ({
               ...prev,
               predictions: filteredPredictions,
+              pendingSubmissions: updatedPendingSubmissions,
               consecutiveErrors: 0,
               error: null,
             }));
@@ -143,12 +175,44 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
       mounted = false;
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [state.activeTab, state.consecutiveErrors, state.showInProgress, showAll]);
+  }, [state.activeTab, state.consecutiveErrors, state.showInProgress, showAll, state.pendingSubmissions]);
 
   // Count of in-progress items
   const inProgressCount = state.predictions.filter(p => 
     ["starting", "processing"].includes(p.status)
-  ).length;
+  ).length + state.pendingSubmissions.length;
+
+  const renderPendingSubmissionCard = (submission: PendingSubmission) => {
+    return (
+      <Card
+        key={submission.id}
+        className="w-full h-full lg:w-[160px] lg:flex-shrink-0 lg:snap-start opacity-75"
+      >
+        <div className="relative aspect-square bg-muted/60">
+          {submission.input.image ? (
+            <Image
+              src={submission.input.image}
+              alt="Pending submission"
+              fill
+              className="object-cover rounded-t-lg opacity-50"
+              unoptimized
+            />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-sm text-muted-foreground">Pending</span>
+            </div>
+          )}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+          </div>
+        </div>
+        <div className="p-2 text-xs text-muted-foreground flex items-center justify-between">
+          <span>Pending</span>
+          <span>Processing...</span>
+        </div>
+      </Card>
+    );
+  };
 
   const renderPredictionCard = (prediction: Prediction) => {
     if (!prediction?.input?.image) return null;
@@ -260,7 +324,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
     </Card>
   );
 
-  const renderContent = (items: (Prediction | SavedModel)[], isStored: boolean) => {
+  const renderContent = (items: (Prediction | SavedModel | PendingSubmission)[], isStored: boolean) => {
     if (state.error && !isStored) {
       return (
         <div className="flex items-center justify-center min-h-[200px] text-sm text-destructive">
@@ -287,11 +351,19 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
 
     return (
       <div className="grid grid-cols-3 gap-3 p-4 overflow-y-auto max-h-[70vh] lg:flex lg:gap-3 lg:overflow-x-auto lg:pb-4 lg:px-4 lg:-mx-4 lg:snap-x lg:snap-mandatory lg:touch-pan-x lg:min-h-[200px]">
-        {items.map((item) =>
-          "url" in item
-            ? renderSavedModelCard(item as SavedModel)
-            : renderPredictionCard(item as Prediction)
-        )}
+        {/* Always show pending submissions first */}
+        {!isStored && state.pendingSubmissions.map(renderPendingSubmissionCard)}
+        
+        {/* Then show regular items */}
+        {items.map(item => {
+          if ('url' in item) {
+            return renderSavedModelCard(item as SavedModel);
+          } else if ('pendingId' in item) {
+            return null; // Skip pending items as they're handled above
+          } else {
+            return renderPredictionCard(item as Prediction);
+          }
+        })}
       </div>
     );
   };
@@ -312,7 +384,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
         <div className="flex items-center justify-between">
           <TabsList className="h-9">
             <TabsTrigger value="replicate" className="text-xs">
-              Replicate ({state.predictions.length})
+              Replicate ({state.predictions.length + state.pendingSubmissions.length})
             </TabsTrigger>
             <TabsTrigger value="stored" className="text-xs">
               Stored ({state.savedModels.length})
@@ -338,7 +410,7 @@ export const PredictionsGrid = ({ onSelectModel, showAll = false }: PredictionsG
         </div>
       </div>
       <TabsContent value="replicate" className="mt-0">
-        {renderContent(state.predictions, false)}
+        {renderContent([...state.predictions], false)}
       </TabsContent>
       <TabsContent value="stored" className="mt-0">
         {renderContent(state.savedModels, true)}

@@ -7,14 +7,24 @@ import { Loader2, Image as ImageIcon } from "lucide-react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
 
-export function ImageGeneration({ onImagesGenerated }) {
+export function ImageGeneration({ 
+  onImagesGenerated, 
+  onSubmit, 
+  forcedAspectRatio = "1:1",
+  useMostPermissiveSafetyLevel = true,
+  useImagen3 = true
+}) {
   const [generatingImages, setGeneratingImages] = useState(false);
   const [generatedImages, setGeneratedImages] = useState([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [aspectRatio, setAspectRatio] = useState("1:1");
+  
+  // Comprehensive negative prompt for clean isolated subjects
+  const negativePrompt = "blurry, distorted, low quality, low resolution, deformed, disfigured, " +
+    "out of frame, cropped, missing limbs, partial body, head only, close-up, " +
+    "watermark, signature, text, environment, props, objects, " + 
+    "cluttered background, distracting details, multiple people, group, crowd, trees, outdoors, " +
+    "furniture, buildings, landscape, room interior";
 
   // Function to generate images from prompts
   const generateImages = async (prompts) => {
@@ -23,12 +33,24 @@ export function ImageGeneration({ onImagesGenerated }) {
     setGeneratingImages(true);
     setProgress({ current: 0, total: prompts.length });
     const images = [];
+    const pendingSubmissions = [];
 
     try {
       // Process prompts sequentially
       for (let i = 0; i < prompts.length; i++) {
         const prompt = prompts[i];
         setProgress({ current: i + 1, total: prompts.length });
+        
+        // Create a pending submission card
+        const pendingId = `pending-${Date.now()}-${i}`;
+        const pendingSubmission = {
+          id: pendingId,
+          status: "starting",
+          input: { image: "" },
+          created_at: new Date().toISOString(),
+          prompt: prompt.replace(/, full standing body, head to toe view, studio lighting, set stark against a solid white background/g, "")
+        };
+        pendingSubmissions.push(pendingSubmission);
         
         // Call the API to generate an image
         const response = await fetch("/api/generate-image", {
@@ -38,8 +60,10 @@ export function ImageGeneration({ onImagesGenerated }) {
           },
           body: JSON.stringify({ 
             prompt, 
-            aspect_ratio: aspectRatio,
-            negative_prompt: "blurry, distorted, low quality, low resolution, deformed"
+            aspect_ratio: forcedAspectRatio,
+            negative_prompt: negativePrompt,
+            safety_filter_level: useMostPermissiveSafetyLevel ? "block_only_high" : "block_medium_and_above",
+            use_imagen3: useImagen3
           }),
         });
 
@@ -53,9 +77,24 @@ export function ImageGeneration({ onImagesGenerated }) {
         if (data.imageUrl) {
           images.push({
             url: data.imageUrl,
-            prompt
+            prompt,
+            pendingId
           });
         }
+      }
+
+      // Update pending submissions with the generated images
+      for (let i = 0; i < images.length; i++) {
+        const image = images[i];
+        const pendingSubmission = pendingSubmissions.find(p => p.id === image.pendingId);
+        if (pendingSubmission) {
+          pendingSubmission.input.image = image.url;
+        }
+      }
+
+      // Notify parent about new submissions
+      if (onSubmit && pendingSubmissions.length > 0) {
+        onSubmit(pendingSubmissions);
       }
 
       setGeneratedImages(images);
@@ -75,24 +114,8 @@ export function ImageGeneration({ onImagesGenerated }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PromptGenerator onGenerateImages={generateImages} />
-      
-      <div className="space-y-1.5">
-        <Label className="text-xs">Aspect Ratio</Label>
-        <Select value={aspectRatio} onValueChange={setAspectRatio}>
-          <SelectTrigger className="h-8">
-            <SelectValue placeholder="Select aspect ratio" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="1:1">Square (1:1)</SelectItem>
-            <SelectItem value="16:9">Landscape (16:9)</SelectItem>
-            <SelectItem value="9:16">Portrait (9:16)</SelectItem>
-            <SelectItem value="4:3">Standard (4:3)</SelectItem>
-            <SelectItem value="3:2">Photo (3:2)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
       
       {generatingImages && (
         <div className="flex items-center justify-center p-4 border rounded-md">
@@ -107,7 +130,6 @@ export function ImageGeneration({ onImagesGenerated }) {
       
       {generatedImages.length > 0 && !generatingImages && (
         <div className="space-y-2">
-          <h3 className="text-sm font-medium">Generated Images</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {generatedImages.map((image, index) => (
               <Card key={index} className="overflow-hidden">
@@ -121,10 +143,7 @@ export function ImageGeneration({ onImagesGenerated }) {
                   />
                 </div>
                 <div className="p-2">
-                  <p className="text-xs truncate" title={image.prompt}>
-                    {image.prompt}
-                  </p>
-                  <div className="flex justify-end mt-2">
+                  <div className="flex justify-end">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -135,7 +154,9 @@ export function ImageGeneration({ onImagesGenerated }) {
                         }
                       }}
                     >
-                      <ImageIcon className="h-3 w-3 mr-1" /> Use
+                      <span className="mr-auto flex items-center">
+                        <ImageIcon className="h-3 w-3 mr-1" /> Use
+                      </span>
                     </Button>
                   </div>
                 </div>

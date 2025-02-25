@@ -1,23 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Input } from "@/components/ui/input";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, X, Info } from "lucide-react";
+import { Plus, X, Info, Check } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 export function PromptGenerator({ onGenerateImages }) {
-  const defaultPrompt = "full frame image of a single {list 1} scandinavian {list 2}, studio lighting, set stark against a solid white background";
+  // Changed default prompt
+  const defaultPrompt = "full frame image of a single {person} scandinavian {pose}";
+  // Updated suffix
+  const promptSuffix = ", full standing body, head to toe view, studio lighting, set stark against a solid white background";
   
   const [basePrompt, setBasePrompt] = useState(defaultPrompt);
   const [lists, setLists] = useState({});
   const [detectedLists, setDetectedLists] = useState([]);
-  const [newTag, setNewTag] = useState({});
+  const [newTag, setNewTag] = useState("");
+  const [activeListId, setActiveListId] = useState(null);
+  const [editingTag, setEditingTag] = useState({ listId: null, index: null, value: "" });
   const [generatedPrompts, setGeneratedPrompts] = useState([]);
+  const editInputRef = useRef(null);
 
   // Detect any {text} patterns in the prompt
   useEffect(() => {
@@ -27,7 +33,7 @@ export function PromptGenerator({ onGenerateImages }) {
     
     setDetectedLists(listIdentifiers);
     
-    // Initialize lists object with empty arrays for new lists
+    // Initialize lists object
     const newLists = { ...lists };
     listIdentifiers.forEach(id => {
       if (!newLists[id]) {
@@ -45,15 +51,49 @@ export function PromptGenerator({ onGenerateImages }) {
     setLists(newLists);
   }, [basePrompt]);
 
-  // Add a new tag to a list
-  const addTag = (listId) => {
-    if (newTag[listId]?.trim()) {
-      setLists(prev => ({
-        ...prev,
-        [listId]: [...(prev[listId] || []), newTag[listId].trim()]
-      }));
-      setNewTag(prev => ({ ...prev, [listId]: "" }));
+  // Add example tags when component loads with default prompt
+  useEffect(() => {
+    if (basePrompt === defaultPrompt && 
+        detectedLists.includes("person") && 
+        detectedLists.includes("pose") &&
+        (!lists["person"] || lists["person"].length === 0) && 
+        (!lists["pose"] || lists["pose"].length === 0)) {
+      // Reduced to 2 elements per list
+      setLists({
+        "person": ["woman", "man"],
+        "pose": ["standing", "walking"]
+      });
     }
+  }, [basePrompt, lists, defaultPrompt, detectedLists]);
+
+  // Focus on edit input when editing starts
+  useEffect(() => {
+    if (editingTag.listId && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  }, [editingTag]);
+
+  // Process tag with multiplier syntax (tag*n)
+  const processTagWithMultiplier = (tag) => {
+    const multiplierMatch = tag.match(/^(.+)\*(\d+)$/);
+    if (multiplierMatch) {
+      const baseTag = multiplierMatch[1].trim();
+      const count = parseInt(multiplierMatch[2], 10);
+      return Array(count).fill(baseTag);
+    }
+    return [tag];
+  };
+
+  // Add a new tag to a list
+  const addTag = (listId, tagText) => {
+    if (!tagText?.trim()) return;
+    
+    const processedTags = processTagWithMultiplier(tagText.trim());
+    
+    setLists(prev => ({
+      ...prev,
+      [listId]: [...(prev[listId] || []), ...processedTags]
+    }));
   };
 
   // Remove a tag from a list
@@ -62,6 +102,33 @@ export function PromptGenerator({ onGenerateImages }) {
       ...prev,
       [listId]: prev[listId].filter((_, i) => i !== index)
     }));
+  };
+
+  // Start editing a tag
+  const startEditTag = (listId, index, value) => {
+    setEditingTag({ listId, index, value });
+  };
+
+  // Complete tag editing
+  const completeTagEdit = () => {
+    if (editingTag.listId && editingTag.value.trim()) {
+      setLists(prev => {
+        const newList = [...prev[editingTag.listId]];
+        newList[editingTag.index] = editingTag.value.trim();
+        return { ...prev, [editingTag.listId]: newList };
+      });
+    }
+    setEditingTag({ listId: null, index: null, value: "" });
+  };
+
+  // Handle key press in tag editing
+  const handleEditKeyPress = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      completeTagEdit();
+    } else if (e.key === 'Escape') {
+      setEditingTag({ listId: null, index: null, value: "" });
+    }
   };
 
   // Generate all prompt permutations
@@ -77,7 +144,10 @@ export function PromptGenerator({ onGenerateImages }) {
     // Function to create all permutations
     function generateAllPermutations(prompt, remainingLists, currentPermutations = []) {
       if (remainingLists.length === 0) {
-        return currentPermutations.length > 0 ? currentPermutations : [prompt];
+        // Add the suffix to all final prompts
+        return currentPermutations.length > 0 
+          ? currentPermutations.map(p => p + promptSuffix) 
+          : [prompt + promptSuffix];
       }
       
       const listId = remainingLists[0];
@@ -87,7 +157,7 @@ export function PromptGenerator({ onGenerateImages }) {
       // For the first list, initialize permutations
       if (currentPermutations.length === 0) {
         const initialPermutations = listTags.map(tag => 
-          prompt.replace(new RegExp(`\\{${listId}\\}`, 'g'), tag)
+          prompt.replace(new RegExp(`\\{${listId.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\}`, 'g'), tag)
         );
         return generateAllPermutations(prompt, newRemainingLists, initialPermutations);
       }
@@ -96,7 +166,9 @@ export function PromptGenerator({ onGenerateImages }) {
       const newPermutations = [];
       currentPermutations.forEach(permutation => {
         listTags.forEach(tag => {
-          newPermutations.push(permutation.replace(new RegExp(`\\{${listId}\\}`, 'g'), tag));
+          newPermutations.push(
+            permutation.replace(new RegExp(`\\{${listId.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\}`, 'g'), tag)
+          );
         });
       });
       
@@ -106,28 +178,7 @@ export function PromptGenerator({ onGenerateImages }) {
     const prompts = generateAllPermutations(basePrompt, [...detectedLists]);
     setGeneratedPrompts(prompts);
     return prompts;
-  }, [basePrompt, detectedLists, lists]);
-
-  // Add example tags for the default prompt
-  useEffect(() => {
-    if (basePrompt === defaultPrompt && 
-        Object.keys(lists).length > 0 && 
-        (!lists["list 1"] || lists["list 1"].length === 0) && 
-        (!lists["list 2"] || lists["list 2"].length === 0)) {
-      setLists({
-        "list 1": ["woman", "girl", "teenage boy", "young man", "toddler"],
-        "list 2": ["idly standing", "jogging", "looking at phone", "squatting"]
-      });
-    }
-  }, [basePrompt, lists, defaultPrompt]);
-
-  // Handle key press in tag input
-  const handleKeyPress = (e, listId) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addTag(listId);
-    }
-  };
+  }, [basePrompt, detectedLists, lists, promptSuffix]);
 
   // Handle submit button click
   const handleSubmit = () => {
@@ -137,105 +188,155 @@ export function PromptGenerator({ onGenerateImages }) {
     }
   };
 
+  // Get colorful Figma-inspired badge styles
+  const getTagColor = (listId, index) => {
+    const colors = [
+      "bg-[#A259FF] text-white", // Purple
+      "bg-[#F24E1E] text-white", // Red
+      "bg-[#1ABCFE] text-white", // Blue
+      "bg-[#0ACF83] text-white", // Green
+      "bg-[#FF7262] text-white", // Coral
+      "bg-[#FF8A00] text-white", // Orange
+    ];
+    
+    // Deterministic color assignment based on listId and index
+    const colorIndex = (listId.charCodeAt(0) + index) % colors.length;
+    return colors[colorIndex];
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="prompt">Base Prompt with Variable Lists</Label>
+        <div className="flex items-center">
+          <Label htmlFor="prompt" className="text-xs">Base Prompt</Label>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-3.5 w-3.5 ml-1 text-muted-foreground" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs max-w-[200px]">
+                  Use {"{person}"}, {"{pose}"} as placeholders. For multiple variations, 
+                  use {"{person*3}"} syntax to repeat a tag 3 times.
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
         <Textarea
           id="prompt"
-          placeholder="Enter prompt with {list names} in curly braces"
+          placeholder="Enter prompt with {placeholders} in curly braces"
           value={basePrompt}
           onChange={(e) => setBasePrompt(e.target.value)}
           className="min-h-[80px]"
         />
-        <div className="flex items-center text-xs text-muted-foreground gap-1">
-          <Info className="h-3 w-3" />
-          <span>Use any text in curly braces like {"{people}"} or {"{poses}"} as placeholders</span>
-        </div>
       </div>
 
       {detectedLists.length > 0 && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium">Detected Lists</h3>
-          
+        <div className="space-y-3">
           {detectedLists.map(listId => (
             <Card key={listId} className="p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <Label className="text-xs font-medium">
-                  {listId} 
-                  <span className="ml-1 text-muted-foreground">
-                    ({lists[listId]?.length || 0} items)
-                  </span>
-                </Label>
+                <span className="text-xs font-medium">{listId} ({lists[listId]?.length || 0})</span>
               </div>
               
-              <div className="flex flex-wrap gap-2 min-h-[40px]">
+              <div className="flex flex-wrap gap-2 min-h-[40px] items-center">
                 {lists[listId]?.map((tag, index) => (
-                  <Badge key={index} variant="secondary" className="px-2 py-1 text-xs">
-                    {tag}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-4 w-4 ml-1 -mr-1"
-                      onClick={() => removeTag(listId, index)}
-                    >
-                      <X className="h-3 w-3" />
-                    </Button>
-                  </Badge>
+                  <div key={index} className="relative">
+                    {editingTag.listId === listId && editingTag.index === index ? (
+                      <div className="flex items-center">
+                        <input
+                          ref={editInputRef}
+                          type="text"
+                          className="h-7 px-2 py-0 text-xs border rounded-full focus:outline-none focus:ring-1 focus:ring-primary w-[120px]"
+                          value={editingTag.value}
+                          onChange={(e) => setEditingTag({...editingTag, value: e.target.value})}
+                          onKeyDown={handleEditKeyPress}
+                          onBlur={completeTagEdit}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 ml-1"
+                          onClick={completeTagEdit}
+                        >
+                          <Check className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Badge 
+                        className={`px-3 py-1 text-xs rounded-full ${getTagColor(listId, index)} cursor-pointer group`}
+                        onClick={() => startEditTag(listId, index, tag)}
+                      >
+                        <span className="group-hover:underline">{tag}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4 ml-1 -mr-1 text-white/90 hover:text-white hover:bg-transparent opacity-70 group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeTag(listId, index);
+                          }}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                        <span className="sr-only">Edit</span>
+                      </Badge>
+                    )}
+                  </div>
                 ))}
                 
-                <div className="flex items-center gap-1">
-                  <Input
-                    className="h-8 text-xs min-w-[120px] max-w-[180px]"
-                    placeholder="Add tag..."
-                    value={newTag[listId] || ""}
-                    onChange={(e) => setNewTag(prev => ({ ...prev, [listId]: e.target.value }))}
-                    onKeyDown={(e) => handleKeyPress(e, listId)}
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 px-2"
-                    onClick={() => addTag(listId)}
-                  >
-                    <Plus className="h-3 w-3" />
-                  </Button>
-                </div>
+                <Badge 
+                  className="bg-muted text-muted-foreground hover:bg-muted/80 px-2 py-1 rounded-full cursor-pointer h-6 w-6 flex items-center justify-center"
+                  onClick={() => setActiveListId(listId)}
+                >
+                  <Plus className="h-3 w-3" />
+                </Badge>
+                
+                {activeListId === listId && (
+                  <div className="flex items-center">
+                    <input
+                      autoFocus
+                      type="text"
+                      className="h-7 px-2 py-0 text-xs border rounded-full focus:outline-none focus:ring-1 focus:ring-primary w-[120px]"
+                      placeholder="Add tag or tag*n..."
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          addTag(listId, newTag);
+                          setNewTag("");
+                        } else if (e.key === 'Escape') {
+                          setActiveListId(null);
+                          setNewTag("");
+                        }
+                      }}
+                      onBlur={() => {
+                        if (newTag.trim()) {
+                          addTag(listId, newTag);
+                        }
+                        setActiveListId(null);
+                        setNewTag("");
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             </Card>
           ))}
-        </div>
-      )}
-
-      {detectedLists.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <Label className="text-sm">
-              Preview 
-              <span className="ml-1 text-muted-foreground">
-                ({generatedPrompts.length || "0"} permutations)
-              </span>
-            </Label>
-            
-            <Button 
-              variant="default" 
-              size="sm"
-              disabled={!detectedLists.every(list => lists[list]?.length > 0)}
-              onClick={handleSubmit}
-            >
-              Generate {generatedPrompts.length || detectedLists.reduce((acc, list) => acc * (lists[list]?.length || 1), 1)} Images
-            </Button>
-          </div>
           
-          {generatedPrompts.length > 0 && (
-            <div className="border rounded-md p-2 max-h-[200px] overflow-y-auto space-y-2 text-xs">
-              {generatedPrompts.map((prompt, index) => (
-                <div key={index} className="p-1 border-b last:border-b-0">
-                  {prompt}
-                </div>
-              ))}
-            </div>
-          )}
+          <Button 
+            variant="default" 
+            size="sm"
+            className="w-full justify-start h-8"
+            disabled={!detectedLists.every(list => lists[list]?.length > 0)}
+            onClick={handleSubmit}
+          >
+            <span className="mr-auto">
+              Generate {generatedPrompts.length || detectedLists.reduce((acc, list) => acc * (lists[list]?.length || 1), 1)} Images
+            </span>
+          </Button>
         </div>
       )}
     </div>

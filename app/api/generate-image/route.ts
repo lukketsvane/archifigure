@@ -4,7 +4,13 @@ import Replicate from "replicate";
 
 export async function POST(request: Request) {
   try {
-    const { prompt, aspect_ratio, negative_prompt, safety_filter_level } = await request.json();
+    const { 
+      prompt, 
+      aspect_ratio, 
+      negative_prompt, 
+      safety_filter_level, 
+      use_imagen3 
+    } = await request.json();
     
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
@@ -24,22 +30,59 @@ export async function POST(request: Request) {
       auth: apiToken,
     });
 
-    // Use Stable Diffusion instead of Imagen-3 (which may require special access)
-    const output = await replicate.run(
-      "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
-      {
-        input: {
-          prompt,
-          width: aspect_ratio === "16:9" ? 1024 : 768,
-          height: aspect_ratio === "9:16" ? 1024 : 768,
-          num_outputs: 1,
-          negative_prompt: negative_prompt || "blurry, distorted, low quality, low resolution, deformed"
+    let output;
+    
+    if (use_imagen3) {
+      // Use Google's Imagen-3
+      output = await replicate.run(
+        "google/imagen-3",
+        {
+          input: {
+            prompt,
+            aspect_ratio: aspect_ratio || "1:1",
+            negative_prompt: negative_prompt || "",
+            safety_filter_level: safety_filter_level || "block_only_high" // Most permissive
+          }
         }
+      );
+    } else {
+      // Fallback to Stable Diffusion
+      // Calculate dimensions based on aspect ratio
+      let width = 768;
+      let height = 768;
+      
+      if (aspect_ratio === "16:9") {
+        width = 1024;
+        height = 576;
+      } else if (aspect_ratio === "9:16") {
+        width = 576;
+        height = 1024;
+      } else if (aspect_ratio === "4:3") {
+        width = 912;
+        height = 684;
+      } else if (aspect_ratio === "3:2") {
+        width = 912;
+        height = 608;
       }
-    );
 
-    // Output from Stable Diffusion is an array of image URLs
-    const imageUrl = Array.isArray(output) && output.length > 0 ? output[0] : null;
+      output = await replicate.run(
+        "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
+        {
+          input: {
+            prompt,
+            width,
+            height,
+            num_outputs: 1,
+            negative_prompt: negative_prompt || "blurry, distorted, low quality, low resolution, deformed",
+            num_inference_steps: 50,
+            guidance_scale: 7.5
+          }
+        }
+      );
+    }
+
+    // Handle the output - for Imagen or array from Stable Diffusion
+    const imageUrl = use_imagen3 ? output : (Array.isArray(output) && output.length > 0 ? output[0] : null);
 
     if (!imageUrl) {
       throw new Error("No image was generated");
