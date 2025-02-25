@@ -1,4 +1,3 @@
-// app/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -34,6 +33,7 @@ import PasswordLock from "@/components/password-lock";
 import { toast } from "sonner";
 import { ImageGeneration } from "@/components/image-generation";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
 import { useDropzone } from "react-dropzone";
 
 function UploadZone({
@@ -104,7 +104,6 @@ function UploadZone({
 export default function ModelGenerator() {
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);
-  const [imageGenerating, setImageGenerating] = useState(false);
   const [imageUrls, setImageUrls] = useState([]);
   const [modelUrl, setModelUrl] = useState("");
   const [error, setError] = useState("");
@@ -113,7 +112,6 @@ export default function ModelGenerator() {
   const [autoGenerateMeshes, setAutoGenerateMeshes] = useState(false);
   const [gridExpanded, setGridExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [generationPrompts, setGenerationPrompts] = useState([]);
   const [formData, setFormData] = useState({
     steps: 50,
     guidance_scale: 5.5,
@@ -134,7 +132,7 @@ export default function ModelGenerator() {
   // Process predictions concurrently
   async function processPredictionsConcurrently(urls, concurrency) {
     const results = [];
-    let currentIndex = 0; // Fixed the typo here
+    let currentIndex = 0; // Changed from a0 to 0
     
     // Create pending submission cards
     const newPendingSubmissions = urls.map((url, idx) => ({
@@ -169,85 +167,36 @@ export default function ModelGenerator() {
     await Promise.all(workers);
     return results;
   }
-
-  // Generate images from prompts
-  const generateImages = async (prompts) => {
-    if (!prompts || prompts.length === 0) return;
-    
-    setImageGenerating(true);
-    setGenerationPrompts(prompts);
-    
-    try {
-      // Call the API to generate images
-      const response = await fetch("/api/generate-images-batch", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          prompts, 
-          aspect_ratio: "1:1",
-          safety_filter_level: "block_only_high" 
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Image generation failed");
-      }
-
-      const data = await response.json();
-      
-      if (data.imageUrls && data.imageUrls.length > 0) {
-        setImageUrls(data.imageUrls);
-        toast.success(`Generated ${data.imageUrls.length} images`);
-      }
-    } catch (error) {
-      setError("Failed to generate images: " + error.message);
-      toast.error("Image generation failed: " + error.message);
-    } finally {
-      setImageGenerating(false);
-    }
-  };
-
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
+    if (imageUrls.length === 0 || cooldown > 0) return;
+    setLoading(true);
+    setError("");
+    setSuccess(false);
     
-    // If we have images already, generate 3D models
-    if (imageUrls.length > 0 && !cooldown) {
-      setLoading(true);
-      setError("");
-      setSuccess(false);
+    try {
+      const results = await processPredictionsConcurrently(imageUrls, 10);
+      const allFailed = results.every((r) => r.error);
       
-      try {
-        const results = await processPredictionsConcurrently(imageUrls, 10);
-        const allFailed = results.every((r) => r.error);
-        
-        if (allFailed) {
-          setError("Generation failed");
-          toast.error("3D model generation failed");
-        } else {
-          setSuccess(true);
-          toast.success("3D model generation started!");
-          setTimeout(() => setSuccess(false), 5000);
-        }
-        
-        setCooldown(120);
-        if (timeoutId) clearTimeout(timeoutId);
-        const id = setTimeout(() => setCooldown(0), 120000);
-        setTimeoutId(id);
-        setImageUrls([]);
-      } catch (err) {
+      if (allFailed) {
         setError("Generation failed");
-        toast.error("Error: " + (err.message || "Unknown error"));
-      } finally {
-        setLoading(false);
+        toast.error("3D model generation failed");
+      } else {
+        setSuccess(true);
+        toast.success("3D model generation started!");
+        setTimeout(() => setSuccess(false), 5000);
       }
-    } else if (generationPrompts.length > 0) {
-      // First generate images if we have prompts but no images
-      await generateImages(generationPrompts);
-    } else {
-      toast.error("Please either upload images or generate them from prompts first");
+      
+      setCooldown(120);
+      if (timeoutId) clearTimeout(timeoutId);
+      const id = setTimeout(() => setCooldown(0), 120000);
+      setTimeoutId(id);
+      setImageUrls([]);
+    } catch (err) {
+      setError("Generation failed");
+      toast.error("Error: " + (err.message || "Unknown error"));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -261,8 +210,13 @@ export default function ModelGenerator() {
     setImageUrls((prev) => prev.filter((img) => img !== url));
   };
 
-  const handlePrompts = (prompts) => {
-    setGenerationPrompts(prompts);
+  const handleImagesGenerated = (urls) => {
+    setImageUrls(urls);
+    
+    // Auto-submit for 3D generation if enabled
+    if (urls.length > 0 && !cooldown && autoGenerateMeshes) {
+      handleSubmit();
+    }
   };
   
   const handleImageGenerationSubmit = (submissions) => {
@@ -309,8 +263,9 @@ export default function ModelGenerator() {
                       {/* Image Generation Component */}
                       <div className="pt-2">
                         <ImageGeneration 
-                          onPrompts={handlePrompts}
+                          onImagesGenerated={handleImagesGenerated} 
                           onSubmit={handleImageGenerationSubmit}
+                          forcedAspectRatio="1:1"
                           useMostPermissiveSafetyLevel={true}
                           useImagen3={true}
                         />
@@ -426,18 +381,13 @@ export default function ModelGenerator() {
                       style={{ 
                         background: loading || cooldown > 0 ? "#666" : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
                       }}
-                      disabled={loading || cooldown > 0 || (imageUrls.length === 0 && generationPrompts.length === 0)}
+                      disabled={loading || imageUrls.length === 0 || cooldown > 0}
                     >
                       <span className="mr-auto">
                         {loading ? (
                           <span className="flex items-center">
                             <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            Generating 3D...
-                          </span>
-                        ) : imageGenerating ? (
-                          <span className="flex items-center">
-                            <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            Generating Images...
+                            Generating...
                           </span>
                         ) : cooldown > 0 ? (
                           <>
@@ -448,7 +398,7 @@ export default function ModelGenerator() {
                             />
                           </>
                         ) : (
-                          `Generate ${imageUrls.length > 0 ? "3D Model" : "Images & 3D"}`
+                          "Generate 3D Model"
                         )}
                       </span>
                     </Button>
@@ -507,12 +457,10 @@ export default function ModelGenerator() {
                   </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
-                    {loading || imageGenerating ? (
+                    {loading ? (
                       <div className="flex flex-col items-center space-y-2">
                         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                        <p className="text-sm text-muted-foreground">
-                          {loading ? "Generating 3D models..." : "Generating images..."}
-                        </p>
+                        <p className="text-sm text-muted-foreground">Generating...</p>
                       </div>
                     ) : imageUrls.length > 0 ? (
                       <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
