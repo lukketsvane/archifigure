@@ -285,8 +285,8 @@ export default function ModelGenerator() {
         <div className="border-b">
           <div className="flex h-14 items-center px-4 max-w-screen-2xl mx-auto">
             <div className="flex items-center space-x-2 font-semibold text-xl">
-              <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">ArchiFigure.io</span>
-              <span className="text-sm text-muted-foreground hidden md:inline-block">• 3D figures for architectural models</span>
+              <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">ArchiFigure</span>
+              <span className="text-sm text-muted-foreground hidden md:inline-block">• 3D figurar til arkitektur modellar</span>
             </div>
             <div className="ml-auto flex items-center space-x-4">
               <Button
@@ -524,40 +524,39 @@ export default function ModelGenerator() {
                     </Button>
                   </form>
                 </TabsContent>
-                
                 <TabsContent value="instructions" className="space-y-4">
                   <div className="space-y-3 text-sm">
-                    <h2 className="text-lg font-medium">How to use ArchiFigure.io</h2>
+                    <h2 className="text-lg font-medium">Korleis bruke tenesta</h2>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">1. Create a project</h3>
-                      <p className="text-muted-foreground text-xs">Start by creating a project to organize your 3D models.</p>
+                      <h3 className="font-medium">1. Lag eit prosjekt</h3>
+                      <p className="text-muted-foreground text-xs">Start med å lage eit prosjekt for å organisere 3D-modellane dine.</p>
                     </div>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">2. Get an image</h3>
-                      <p className="text-muted-foreground text-xs">Upload your own image of a person, or use our text-to-image generator to create one.</p>
+                      <h3 className="font-medium">2. Få eit bilete</h3>
+                      <p className="text-muted-foreground text-xs">Last opp ditt eige bilete av ein person, eller bruk tekstgeneratoren til å lage eitt.</p>
                     </div>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">3. Generate 3D model</h3>
-                      <p className="text-muted-foreground text-xs">Once you have an image, click "Generate 3D Model" to create a 3D figure.</p>
+                      <h3 className="font-medium">3. Generer 3D-modell</h3>
+                      <p className="text-muted-foreground text-xs">Når du har eit bilete, klikk på "Generer 3D-modell" for å lage ein 3D-figur.</p>
                     </div>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">4. View and download</h3>
-                      <p className="text-muted-foreground text-xs">When processing is complete, view your 3D model and download the GLB file for use in your architectural projects.</p>
+                      <h3 className="font-medium">4. Sjå og last ned</h3>
+                      <p className="text-muted-foreground text-xs">Når prosessen er ferdig, kan du sjå 3D-modellen og laste ned GLB-fila for bruk i arkitekturprosjekta dine.</p>
                     </div>
                     
                     <div className="bg-muted/50 p-3 rounded-md">
                       <div className="flex gap-2">
                         <div className="text-xs">
-                          <p className="font-medium">Best practices:</p>
+                          <p className="font-medium">Gode tips:</p>
                           <ul className="list-disc ml-4 mt-1 space-y-1 text-muted-foreground">
-                            <li>Use images with a plain background</li>
-                            <li>Ensure the full body is visible</li>
-                            <li>For architectural scale figures, standing poses work best</li>
-                            <li>Use 256 resolution for faster generation, 512 for more detail</li>
+                            <li>Bruk bilete med enkel bakgrunn</li>
+                            <li>Sjå til at heile kroppen er synleg</li>
+                            <li>For arkitektur er ståande figurar best</li>
+                            <li>Bruk 256 for raskare generering, 512 for meir detaljar</li>
                           </ul>
                         </div>
                       </div>
@@ -612,27 +611,36 @@ export default function ModelGenerator() {
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
-                        <div className="h-16 w-16 rounded-full bg-muted/60 flex items-center justify-center">
-                          <ImageIcon className="h-8 w-8 text-muted-foreground/60" />
+                      ) : (
+                        <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
+
+                          {!currentProjectId && (
+                            <Button onClick={() => setProjectDialogOpen(true)}>
+                              <FolderPlus className="h-4 w-4 mr-2" />
+                              Opprett prosjekt
+                            </Button>
+                          )}
+                          
+                          <div className="mt-8 border-t pt-4 w-full">
+                            <p className="text-sm text-muted-foreground mb-2">
+                              Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
+                            </p>
+                            <div className="flex justify-center">
+                              <a href="https://ibb.co/xyDb4P6" target="_blank" rel="noopener noreferrer">
+                                <img 
+                                  src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
+                                  alt="vipps" 
+                                  className="w-32 h-32 object-contain" 
+                                />
+                              </a>
+                            </div>
+                          </div>
                         </div>
-                        <h3 className="text-lg font-medium">No Model Selected</h3>
-                        <p className="text-sm text-muted-foreground">
-                          First create a project, then upload an image or use the generator to create a 3D figure
-                        </p>
-                        {!currentProjectId && (
-                          <Button onClick={() => setProjectDialogOpen(true)}>
-                            <FolderPlus className="h-4 w-4 mr-2" />
-                            Create Project
-                          </Button>
-                        )}
+                      )}
                       </div>
-                    )}
-                  </div>
-                )}
-              </Card>
-            </div>
+                      )}
+                      </Card>
+                      </div>
             
             {/* Collapsible predictions grid - hidden on mobile */}
             <div className={`border-t transition-all duration-300 ease-in-out ${gridExpanded ? 'h-[70vh]' : 'h-12'} hidden md:block`}>

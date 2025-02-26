@@ -170,7 +170,33 @@ async function registerPredictionForStorage(predictionId: string, projectId: str
     return false
   }
 }
-
+export async function checkModelExists(
+  modelUrl: string,
+  projectId: string | null
+): Promise<{ exists: boolean }> {
+  try {
+    if (projectId) {
+      // Check if exists in the project
+      const { data, error } = await supabaseAdmin
+        .from('project_models')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('model_url', modelUrl)
+        .maybeSingle();
+        
+      if (error) throw error;
+      return { exists: !!data };
+    } else {
+      // Check if exists in general storage
+      const modelsData = await getModelsData();
+      const exists = modelsData.models.some((model: SavedModel) => model.url === modelUrl);
+      return { exists };
+    }
+  } catch (error) {
+    console.error('Error checking if model exists:', error);
+    return { exists: false }; // Assume it doesn't exist if there's an error checking
+  }
+}
 // Check and store completed predictions - this would be run by a cron job
 export async function checkAndStoreCompletedPredictions() {
   try {

@@ -7,8 +7,8 @@ import { Navbar } from "@/components/navbar";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata = {
-  title: "ArchiFigure.io - 3D figures for architectural models",
-  description: "Generate 3D human figures for your architectural models",
+  title: "ArchiFigure - 3D-figurar for arkitekturmodellar",
+  description: "Generer 3D-menneskefigurar til arkitekturmodellane dine",
 };
 
 interface RootLayoutProps {
@@ -17,7 +17,7 @@ interface RootLayoutProps {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="en">
+    <html lang="nn">
       <body className={inter.className}>
         <ThemeProvider>
           <div className="flex flex-col min-h-screen">
