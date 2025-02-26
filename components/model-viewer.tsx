@@ -563,3 +563,33 @@ export function ModelViewer({
     </div>
   )
 }
+
+function tempToColor(kelvin: number) {
+  kelvin /= 100
+  let red, green, blue
+  if (kelvin <= 66) {
+    red = 255
+    green = Math.min(
+      255,
+      Math.max(0, 99.4708025861 * Math.log(kelvin) - 161.1195681661)
+    )
+    blue =
+      kelvin <= 19
+        ? 0
+        : Math.min(
+            255,
+            Math.max(0, 138.5177312231 * Math.log(kelvin - 10) - 305.0447927307)
+          )
+  } else {
+    red = Math.min(
+      255,
+      Math.max(0, 329.698727446 * Math.pow(kelvin - 60, -0.1332047592))
+    )
+    green = Math.min(
+      255,
+      Math.max(0, 288.1221695283 * Math.pow(kelvin - 60, -0.0755148492))
+    )
+    blue = 255
+  }
+  return `rgb(${red}, ${green}, ${blue})`
+}
