@@ -1,9 +1,10 @@
+// components/image-generation.tsx
 "use client";
 
 import { useState } from "react";
 import { PromptGenerator } from "./prompt-generator";
 import { Button } from "@/components/ui/button";
-import { Loader2, Image as ImageIcon } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -113,15 +114,26 @@ export function ImageGeneration({
     }
   };
 
+  // Remove an image from the generated images
+  const removeImage = (index) => {
+    const newImages = [...generatedImages];
+    newImages.splice(index, 1);
+    setGeneratedImages(newImages);
+    
+    if (onImagesGenerated) {
+      onImagesGenerated(newImages.map(img => img.url));
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <PromptGenerator onGenerateImages={generateImages} />
       
       {generatingImages && (
-        <div className="flex items-center justify-center p-4 border rounded-md">
+        <div className="flex items-center justify-center p-3 border rounded-md">
           <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
-            <p className="text-sm">
+            <Loader2 className="h-7 w-7 animate-spin mx-auto mb-1" />
+            <p className="text-xs">
               Generating image {progress.current} of {progress.total}...
             </p>
           </div>
@@ -130,7 +142,7 @@ export function ImageGeneration({
       
       {generatedImages.length > 0 && !generatingImages && (
         <div className="space-y-2">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             {generatedImages.map((image, index) => (
               <Card key={index} className="overflow-hidden">
                 <div className="relative aspect-square">
@@ -141,24 +153,14 @@ export function ImageGeneration({
                     className="object-cover"
                     unoptimized
                   />
-                </div>
-                <div className="p-2">
-                  <div className="flex justify-end">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        if (onImagesGenerated) {
-                          onImagesGenerated([image.url]);
-                        }
-                      }}
-                    >
-                      <span className="mr-auto flex items-center">
-                        <ImageIcon className="h-3 w-3 mr-1" /> Use
-                      </span>
-                    </Button>
-                  </div>
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => removeImage(index)}
+                    className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/50 backdrop-blur-sm hover:bg-background/70"
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
                 </div>
               </Card>
             ))}

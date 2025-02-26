@@ -1,4 +1,3 @@
-// components/model-viewer.tsx
 "use client"
 
 import { Suspense, useState, useEffect, useRef, useCallback } from "react"
@@ -67,9 +66,7 @@ function ModelLoader({
         }
       }
     )
-    return () => {
-      canceled = true
-    }
+    return () => { canceled = true }
   }, [url, retryCount, onLoad, onError, maxRetries])
 
   if (modelError) {
@@ -129,11 +126,9 @@ function ModelContent({
             obj.receiveShadow = true
           }
         })
-        // Snap model to ground by offsetting its position based on its bounding box
         const box = new THREE.Box3().setFromObject(loadedScene)
         const offsetY = -box.min.y
         loadedScene.position.y += offsetY
-
         setModel(loadedScene)
       } catch (err) {
         console.error("Model setup error:", err)
@@ -185,7 +180,6 @@ function ModelContent({
         <ModelLoader url={url} onLoad={handleModelLoad} onError={onError} />
       )}
       <MovableLight />
-      {/* Ground plane to receive shadows */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[100, 100]} />
         <shadowMaterial transparent opacity={0.4} />
@@ -322,26 +316,18 @@ export function ModelViewer({
     saveSuccess: false,
   })
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(currentProjectId)
   const [isMobile, setIsMobile] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   
-  // Check if viewing on mobile
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768)
-    }
-    
+    const checkMobile = () => setIsMobile(window.innerWidth < 768)
     checkMobile()
     window.addEventListener('resize', checkMobile)
-    
-    return () => {
-      window.removeEventListener('resize', checkMobile)
-    }
+    return () => window.removeEventListener('resize', checkMobile)
   }, [])
   
-  // Load projects on mount
   useEffect(() => {
     const fetchProjects = async () => {
       try {
@@ -351,7 +337,6 @@ export function ModelViewer({
         console.error("Error fetching projects:", error);
       }
     };
-    
     fetchProjects();
   }, []);
 
@@ -377,7 +362,6 @@ export function ModelViewer({
     }, ...prev])
     toast.success(`Project "${projectName}" created`)
     
-    // Update the parent component if callback provided
     if (onProjectSelect) {
       onProjectSelect(projectId)
     }
@@ -389,7 +373,6 @@ export function ModelViewer({
     setState((prev) => ({ ...prev, saving: true, error: null }));
     
     try {
-      // Check if model already exists in database or project
       const existsResult = await checkModelExists(url, selectedProjectId || null);
       
       if (existsResult.exists) {
@@ -403,11 +386,10 @@ export function ModelViewer({
       }
       
       if (selectedProjectId) {
-        // Save to project
         const result = await saveModelToProject(
           selectedProjectId,
           url,
-          inputImage, // Using input image as thumbnail
+          inputImage,
           inputImage,
           resolution,
           `Model ${new Date().toLocaleString()}`
@@ -417,7 +399,6 @@ export function ModelViewer({
           setState((prev) => ({ ...prev, saveSuccess: true }));
           toast.success("Model saved to project successfully");
           
-          // Notify parent component if needed
           if (onProjectSelect && selectedProjectId !== currentProjectId) {
             onProjectSelect(selectedProjectId);
           }
@@ -429,7 +410,6 @@ export function ModelViewer({
           toast.error("Failed to save model to project");
         }
       } else {
-        // Save to regular storage
         await saveModelToDatabase(url, inputImage, resolution);
         setState((prev) => ({ ...prev, saveSuccess: true }));
         toast.success("Model saved successfully");
@@ -449,7 +429,6 @@ export function ModelViewer({
     setIsFullscreen(prev => !prev);
   };
 
-  // Conditional classes for the fullscreen mobile view
   const containerClasses = isFullscreen 
     ? "fixed inset-0 z-50 bg-background" 
     : "h-full w-full";
@@ -457,7 +436,7 @@ export function ModelViewer({
   return (
     <div className={containerClasses}>
       {isFullscreen && (
-        <div className="absolute top-0 left-0 right-0 z-10 p-4 flex justify-between items-center bg-background/80 backdrop-blur-sm">
+        <div className="absolute top-0 left-0 right-0 z-10 p-2 flex justify-between items-center bg-background/80 backdrop-blur-sm">
           <h2 className="text-lg font-medium">3D Model Viewer</h2>
           <Button
             variant="ghost"
@@ -475,7 +454,7 @@ export function ModelViewer({
         onProjectCreated={handleProjectCreated}
       />
       
-      <div className={`${isMobile ? 'aspect-square w-full' : 'h-full w-full'}`}>
+      <div className={`${isMobile ? 'min-h-[350px] h-[70vh]' : 'h-full w-full'}`}>
         <Canvas shadows camera={{ position: [0, 0, 5] }} style={{ background: bg }}>
           <color attach="background" args={[bg]} />
           <Suspense fallback={null}>
@@ -484,37 +463,34 @@ export function ModelViewer({
         </Canvas>
       </div>
       
-      {/* Fullscreen button for mobile */}
       {isMobile && !isFullscreen && (
         <Button
           variant="outline"
           size="sm"
-          className="absolute top-3 right-3 h-8 bg-background/50 backdrop-blur-sm z-10"
+          className="absolute top-2 right-2 h-7 bg-background/50 backdrop-blur-sm z-10"
           onClick={toggleFullscreen}
         >
-          <Expand className="h-3 w-3 mr-2" />
+          <Expand className="h-3 w-3 mr-1" />
           Fullscreen
         </Button>
       )}
       
-      {/* Controls positioned at the bottom */}
-      <div className={`${isFullscreen ? 'absolute bottom-6' : 'absolute bottom-3'} left-0 right-0 flex justify-center gap-2 z-10 px-4`}>
-        {/* Main controls */}
-        <div className="flex gap-2 overflow-x-auto pb-2 max-w-full">
+      <div className={`${isFullscreen ? 'absolute bottom-4' : 'absolute bottom-2'} left-0 right-0 flex justify-center gap-1 z-10 px-2`}>
+        <div className="flex gap-1 overflow-x-auto pb-1 max-w-full bg-background/40 backdrop-blur-sm rounded-lg p-1">
           <Button
             variant="outline"
             size="sm"
-            className="h-8 bg-background/50 backdrop-blur-sm whitespace-nowrap"
+            className="h-7 bg-background/50 backdrop-blur-sm whitespace-nowrap"
             onClick={handleToggleTextures}
           >
-            <Layers className="h-3 w-3 mr-2" />
+            <Layers className="h-3 w-3 mr-1" />
             Toggle Textures
           </Button>
           
           <Button
             variant="outline"
             size="sm"
-            className="h-8 bg-background/50 backdrop-blur-sm whitespace-nowrap"
+            className="h-7 bg-background/50 backdrop-blur-sm whitespace-nowrap"
             onClick={() => {
               const link = document.createElement("a")
               link.href = url
@@ -524,7 +500,7 @@ export function ModelViewer({
               document.body.removeChild(link)
             }}
           >
-            <Download className="h-3 w-3 mr-2" />
+            <Download className="h-3 w-3 mr-1" />
             Download
           </Button>
           
@@ -535,7 +511,7 @@ export function ModelViewer({
                   value={selectedProjectId || undefined}
                   onValueChange={(value) => setSelectedProjectId(value)}
                 >
-                  <SelectTrigger className="h-8 text-xs bg-background/50 backdrop-blur-sm w-32">
+                  <SelectTrigger className="h-7 text-xs bg-background/50 backdrop-blur-sm w-28">
                     <SelectValue placeholder="Select project" />
                   </SelectTrigger>
                   <SelectContent>
@@ -550,7 +526,7 @@ export function ModelViewer({
                 <Button
                   variant="outline"
                   size="icon"
-                  className="h-8 w-8 bg-background/50 backdrop-blur-sm"
+                  className="h-7 w-7 bg-background/50 backdrop-blur-sm"
                   onClick={() => setProjectDialogOpen(true)}
                 >
                   <FolderPlus className="h-3 w-3" />
@@ -560,11 +536,11 @@ export function ModelViewer({
               <Button
                 variant={state.saveSuccess ? "default" : "outline"}
                 size="sm"
-                className="h-8 bg-background/50 backdrop-blur-sm whitespace-nowrap"
+                className="h-7 bg-background/50 backdrop-blur-sm whitespace-nowrap"
                 onClick={handleSaveModel}
                 disabled={state.saving}
               >
-                <Save className={`h-3 w-3 mr-2 ${state.saving ? "animate-spin" : ""}`} />
+                <Save className={`h-3 w-3 mr-1 ${state.saving ? "animate-spin" : ""}`} />
                 {state.saving ? "Saving..." : state.saveSuccess ? "Saved" : "Save"}
               </Button>
             </>
@@ -582,9 +558,6 @@ export function ModelViewer({
   )
 }
 
-/**
- * Converts a color temperature in Kelvin to an RGB string.
- */
 function tempToColor(kelvin: number) {
   kelvin /= 100
   let red, green, blue

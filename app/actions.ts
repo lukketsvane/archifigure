@@ -1,4 +1,3 @@
-// app/actions.ts
 "use server"
 
 import Replicate from "replicate"
@@ -48,15 +47,8 @@ const validateUrl = async (url: string, type?: "model" | "image") => {
 async function getModelsData(): Promise<{ models: SavedModel[] }> {
   try {
     const { blobs } = await list({ prefix: "models-", token: process.env.BLOB_READ_WRITE_TOKEN! })
-    // Pick the latest models database blob
-    const latest = blobs.sort(
-      (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
-    )[0]
-    return latest
-      ? await fetch(latest.url)
-          .then((r) => r.json())
-          .catch(() => ({ models: [] }))
-      : { models: [] }
+    const latest = blobs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())[0]
+    return latest ? await fetch(latest.url).then((r) => r.json()).catch(() => ({ models: [] })) : { models: [] }
   } catch {
     return { models: [] }
   }
@@ -65,53 +57,27 @@ async function getModelsData(): Promise<{ models: SavedModel[] }> {
 async function saveModelsData({ models }: { models: SavedModel[] }) {
   if (!models?.length) return
   const blob = new Blob([JSON.stringify({ models }, null, 2)], { type: "application/json" })
-  // Save updated models database as a new blob file
-  const { url } = await put(`models-${Date.now()}.json`, blob, {
-    access: "public",
-    token: process.env.BLOB_READ_WRITE_TOKEN!,
-  })
-  // List all blobs with prefix and delete older ones, keeping only the latest.
+  const { url } = await put(`models-${Date.now()}.json`, blob, { access: "public", token: process.env.BLOB_READ_WRITE_TOKEN! })
   const { blobs } = await list({ prefix: "models-", token: process.env.BLOB_READ_WRITE_TOKEN! })
   await Promise.all(
-    blobs
-      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
-      .slice(1)
-      .map((b) => del(b.url, { token: process.env.BLOB_READ_WRITE_TOKEN! }))
+    blobs.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()).slice(1).map((b) => del(b.url, { token: process.env.BLOB_READ_WRITE_TOKEN! }))
   )
 }
 
 export const getPredictions = async (): Promise<Prediction[]> => {
   try {
-    // @ts-ignore: ignoring type checking for API response
     const { results } = await fetch(
       "https://api.replicate.com/v1/predictions?deployment=cygnus-holding/hunyuan3d-2",
-      {
-        headers: { Authorization: `Token ${process.env.REPLICATE_API_TOKEN}` },
-        cache: "no-store",
-      }
+      { headers: { Authorization: `Token ${process.env.REPLICATE_API_TOKEN}` }, cache: "no-store" }
     ).then((r) => r.json())
 
-    return (
-      (results as Prediction[])
-        ?.filter(
-          (p: Prediction) =>
-            p?.id &&
-            p?.status &&
-            p?.input?.image &&
-            p.status !== "canceled" &&
-            (p.status === "succeeded"
-              ? p.output?.mesh && new URL(p.output.mesh)
-              : !p.error && ["starting", "processing"].includes(p.status))
-        )
-        .sort((a, b) =>
-          ["starting", "processing"].includes(a.status) !==
-          ["starting", "processing"].includes(b.status)
-            ? ["starting", "processing"].includes(a.status)
-              ? -1
-              : 1
-            : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        ) ?? []
-    )
+    return (results as Prediction[])?.filter(
+      (p) => p?.id && p?.status && p?.input?.image && p.status !== "canceled" && (p.status === "succeeded" ? p.output?.mesh && new URL(p.output.mesh) : !p.error && ["starting", "processing"].includes(p.status))
+    ).sort((a, b) =>
+      ["starting", "processing"].includes(a.status) !== ["starting", "processing"].includes(b.status)
+        ? ["starting", "processing"].includes(a.status) ? -1 : 1
+        : new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    ) ?? []
   } catch {
     return []
   }
@@ -124,365 +90,125 @@ export const generateModel = async (data: {
   seed: number
   octree_resolution: number
   remove_background: boolean
-  project_id: string
+  project_id?: string
 }) => {
+  // Extract a filename from the image URL to use as a base for the model name
+  let modelName = "3D Model";
+  
   try {
-    // Start the prediction with Replicate
-    const prediction = await replicate.deployments.predictions.create(
-      "cygnus-holding",
-      "hunyuan3d-2",
-      { input: data }
-    )
+    // Try to extract a name from the URL
+    const url = new URL(data.image);
+    const pathname = url.pathname;
     
-    // Auto-register the prediction for storage when complete
-    await registerPredictionForStorage(prediction.id, data.project_id)
-    
-    return { 
-      success: true, 
-      debug: { 
-        predictionId: prediction.id, 
-        status: prediction.status,
-        projectId: data.project_id
-      } 
+    // Try to get a filename
+    const filename = pathname.split('/').pop();
+    if (filename) {
+      // Remove extension and use as name
+      const nameWithoutExt = filename.split('.')[0];
+      if (nameWithoutExt && nameWithoutExt.length > 0) {
+        modelName = nameWithoutExt;
+      }
     }
-  } catch (error) {
-    console.error("Generate model error:", error)
-    return { success: false, error: "Failed to start generation" }
+  } catch (e) {
+    // If URL parsing fails, use a default name with timestamp
+    modelName = `Model-${new Date().toISOString().slice(0,10)}`;
   }
-}
 
-// Register a prediction to be auto-stored when complete
-async function registerPredictionForStorage(predictionId: string, projectId: string) {
   try {
-    // Create a record in the prediction_storage table to track this prediction
-    const { error } = await supabaseAdmin
-      .from('prediction_storage')
-      .insert({
-        prediction_id: predictionId,
-        project_id: projectId,
-        status: 'pending'
-      })
-      
-    if (error) throw error
-    return true
-  } catch (error) {
-    console.error('Error registering prediction for storage:', error)
-    return false
-  }
-}
-export async function checkModelExists(
-  modelUrl: string,
-  projectId: string | null
-): Promise<{ exists: boolean }> {
-  try {
-    if (projectId) {
-      // Check if exists in the project
-      const { data, error } = await supabaseAdmin
-        .from('project_models')
-        .select('id')
-        .eq('project_id', projectId)
-        .eq('model_url', modelUrl)
-        .maybeSingle();
-        
-      if (error) throw error;
-      return { exists: !!data };
-    } else {
-      // Check if exists in general storage
-      const modelsData = await getModelsData();
-      const exists = modelsData.models.some((model: SavedModel) => model.url === modelUrl);
-      return { exists };
-    }
-  } catch (error) {
-    console.error('Error checking if model exists:', error);
-    return { exists: false }; // Assume it doesn't exist if there's an error checking
-  }
-}
-// Check and store completed predictions - this would be run by a cron job
-export async function checkAndStoreCompletedPredictions() {
-  try {
-    // Get pending storage predictions
-    const { data: pendingPredictions, error } = await supabaseAdmin
-      .from('prediction_storage')
-      .select('*')
-      .eq('status', 'pending')
+    const prediction = await replicate.deployments.predictions.create("cygnus-holding", "hunyuan3d-2", { input: data })
     
-    if (error) throw error
+    // Create prediction storage entry for ALL predictions, regardless of project
+    await registerPredictionForStorage(prediction.id, data.project_id || null)
     
-    // For each pending prediction, check if it's complete
-    for (const pending of pendingPredictions) {
+    // Create project entry only if project_id is provided
+    if (prediction.id && data.project_id) {
       try {
-        const prediction = await replicate.predictions.get(pending.prediction_id)
-        
-        // If the prediction is complete, store it
-        if (prediction.status === 'succeeded' && prediction.output?.mesh) {
-          // Save the model to the project
-          await saveModelToProject(
-            pending.project_id,
-            prediction.output.mesh,
-            prediction.input.image,
-            prediction.input.image,
-            prediction.input.octree_resolution || 256,
-            `Auto-saved model ${new Date().toLocaleDateString()}`
-          )
-          
-          // Update the prediction storage record
-          await supabaseAdmin
-            .from('prediction_storage')
-            .update({ status: 'completed' })
-            .eq('prediction_id', pending.prediction_id)
-        } 
-        // If the prediction failed, mark it as failed
-        else if (prediction.status === 'failed' || prediction.error) {
-          await supabaseAdmin
-            .from('prediction_storage')
-            .update({ status: 'failed' })
-            .eq('prediction_id', pending.prediction_id)
-        }
-      } catch (predictionError) {
-        console.error(`Error processing prediction ${pending.prediction_id}:`, predictionError)
+        await supabaseAdmin.from("project_models").insert({
+          prediction_id: prediction.id,
+          project_id: data.project_id,
+          input_image: data.image,
+          name: modelName,
+          resolution: data.octree_resolution,
+          status: prediction.status,
+        });
+      } catch (error) {
+        console.error('Failed to create project model record:', error);
       }
     }
     
+    return prediction
+  } catch (error) {
+    console.error("Generate model error:", error)
+    throw new Error("Failed to start generation")
+  }
+}
+
+async function registerPredictionForStorage(predictionId: string, projectId: string | null) {
+  try {
+    const { error } = await supabaseAdmin.from("prediction_storage").insert({ 
+      prediction_id: predictionId, 
+      project_id: projectId, 
+      status: "pending" 
+    })
+    if (error) throw error
     return true
   } catch (error) {
-    console.error('Error checking completed predictions:', error)
+    console.error("Error registering prediction for storage:", error)
     return false
   }
 }
 
-export const uploadImage = async (formData: FormData) => {
+export async function checkModelExists(modelUrl: string, projectId: string | null): Promise<{ exists: boolean }> {
   try {
-    const image = formData.get("image")
-    if (!image) return { success: false, error: "No image provided" }
-    const imgbbForm = new FormData()
-    imgbbForm.append("image", image)
-    imgbbForm.append("key", "67bc9085dfd47a9a6df5409995e66874")
-    const { success, data } = await fetch("https://api.imgbb.com/1/upload", {
-      method: "POST",
-      body: imgbbForm,
-    }).then((r) => r.json())
-    return success ? { success: true, url: data.url } : { success: false, error: "Upload failed" }
-  } catch {
-    return { success: false, error: "Upload failed" }
-  }
-}
-
-// Create a new project
-export async function createProject(name: string): Promise<Project | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
-      .insert({ name })
-      .select()
-      .single();
-      
-    if (error) throw error;
-    return data;
+    if (projectId) {
+      const { data, error } = await supabaseAdmin.from("project_models").select("id").eq("project_id", projectId).eq("model_url", modelUrl).maybeSingle()
+      if (error) throw error
+      return { exists: !!data }
+    } else {
+      const modelsData = await getModelsData()
+      return { exists: modelsData.models.some((model) => model.url === modelUrl) }
+    }
   } catch (error) {
-    console.error('Error creating project:', error);
-    return null;
+    console.error("Error checking if model exists:", error)
+    return { exists: false }
   }
 }
 
-// Get all projects
-export async function getProjects(): Promise<Project[]> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
-      
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('Error fetching projects:', error);
-    return [];
-  }
-}
-
-// Get a specific project by ID
-export async function getProject(id: string): Promise<Project | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
-      .select('*')
-      .eq('id', id)
-      .single();
-      
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error fetching project:', error);
-    return null;
-  }
-}
-
-// Get models for a specific project
-export async function getProjectModels(projectId: string): Promise<ProjectModel[]> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('project_models')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false });
-      
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('Error fetching project models:', error);
-    return [];
-  }
-}
-
-// Save a model to a project with optional name
-export async function saveModelToProject(
-  projectId: string,
-  modelUrl: string,
-  thumbnailUrl: string,
-  inputImage: string,
-  resolution: number,
-  name?: string
-): Promise<ProjectModel | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('project_models')
-      .insert({
-        project_id: projectId,
-        model_url: modelUrl,
-        thumbnail_url: thumbnailUrl,
-        input_image: inputImage,
-        resolution: resolution,
-        name: name || `Model ${new Date().toLocaleString()}`
-      })
-      .select()
-      .single();
-      
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error saving model to project:', error);
-    return null;
-  }
-}
-
-// Delete a project and all its models
 export async function deleteProject(projectId: string): Promise<boolean> {
   try {
-    // First, delete all models in the project
-    const { error: modelsError } = await supabaseAdmin
-      .from('project_models')
-      .delete()
-      .eq('project_id', projectId);
-      
-    if (modelsError) throw modelsError;
-    
-    // Then delete the project
-    const { error: projectError } = await supabaseAdmin
-      .from('projects')
-      .delete()
-      .eq('id', projectId);
-      
-    if (projectError) throw projectError;
-    
-    return true;
+    await supabaseAdmin.from("project_models").delete().eq("project_id", projectId)
+    await supabaseAdmin.from("projects").delete().eq("id", projectId)
+    return true
   } catch (error) {
-    console.error('Error deleting project:', error);
-    return false;
+    console.error("Error deleting project:", error)
+    return false
   }
 }
 
-// Delete a specific model
 export async function deleteProjectModel(modelId: string): Promise<boolean> {
   try {
-    const { error } = await supabaseAdmin
-      .from('project_models')
-      .delete()
-      .eq('id', modelId);
-      
-    if (error) throw error;
-    return true;
+    await supabaseAdmin.from("project_models").delete().eq("id", modelId)
+    return true
   } catch (error) {
-    console.error('Error deleting model:', error);
-    return false;
+    console.error("Error deleting model:", error)
+    return false
   }
 }
 
-export const getSavedModels = async (): Promise<SavedModel[]> =>
-  (await getModelsData()).models.filter(
-    (m: SavedModel) =>
-      m.id && m.url && m.thumbnail_url && m.created_at && m.input_image && m.resolution && m.model_hash
+export const getSavedModels = async (): Promise<SavedModel[]> => {
+  const data = await getModelsData()
+  // Return all valid GLB models without additional filtering
+  return data.models.filter(m => 
+    m.id && 
+    m.url && 
+    m.url.includes('.glb') && // Ensure it's a GLB file
+    m.thumbnail_url && 
+    m.created_at && 
+    m.input_image
   )
-
-export const saveModelToDatabase = async (
-  modelUrl: string,
-  inputImage: string,
-  resolution: number
-): Promise<SavedModel | null> => {
-  try {
-    if (
-      !modelUrl ||
-      !inputImage ||
-      !resolution ||
-      resolution < 256 ||
-      resolution > 512 ||
-      !Number.isInteger(resolution)
-    )
-      throw new Error("Invalid input")
-
-    const [modelValid, imageValid] = await Promise.all([
-      validateUrl(modelUrl, "model"),
-      validateUrl(inputImage, "image"),
-    ])
-    if (!modelValid || !imageValid) throw new Error("Invalid URLs")
-
-    const data = await getModelsData()
-    const buffer = await fetch(modelUrl).then((r) => r.arrayBuffer())
-    const hash = createHash("sha256").update(Buffer.from(buffer)).digest("hex")
-
-    const existing = data.models.find((m: SavedModel) => m.model_hash === hash)
-    if (existing && (await validateUrl(existing.url)) && (await validateUrl(existing.thumbnail_url)))
-      return existing
-
-    const [modelBlob, imageBlob] = await Promise.all([
-      fetch(modelUrl).then((r) => r.blob()),
-      fetch(inputImage).then((r) => r.blob()),
-    ])
-    if (!modelBlob.size || !imageBlob.size) throw new Error("Invalid files")
-
-    const filename = `model-${Date.now()}-${hash.slice(0, 8)}`
-    const [modelUpload, thumbnailUpload] = await Promise.all([
-      put(`${filename}.glb`, modelBlob, { access: "public", token: process.env.BLOB_READ_WRITE_TOKEN! }),
-      put(`${filename}-thumb.jpg`, imageBlob, { access: "public", token: process.env.BLOB_READ_WRITE_TOKEN! }),
-    ])
-
-    const newModel: SavedModel = {
-      id: filename,
-      url: modelUpload.url,
-      thumbnail_url: thumbnailUpload.url,
-      created_at: new Date().toISOString(),
-      input_image: inputImage,
-      resolution,
-      model_hash: hash,
-    }
-
-    data.models.unshift(newModel)
-    await saveModelsData(data)
-    return (await getModelsData()).models.find((m: SavedModel) => m.id === newModel.id) ?? null
-  } catch (error) {
-    console.error("Save error:", error)
-    return null
-  }
 }
 
-/**
- * Deletes a saved model:
- * 1. Retrieves the current models data.
- * 2. Finds the model record with the given id.
- * 3. Deletes the associated blob files for the model and its thumbnail.
- * 4. Updates the models database by removing the record.
- */
 export async function deleteSavedModel(id: string): Promise<void> {
-  // Retrieve current saved models data
   const data = await getModelsData()
   const models = data.models
   const modelToDelete = models.find((m) => m.id === id)
@@ -490,87 +216,294 @@ export async function deleteSavedModel(id: string): Promise<void> {
     console.error(`Model with id ${id} not found`)
     return
   }
-  // Delete the model blob and thumbnail blob from storage
-  await Promise.all([
-    del(modelToDelete.url, { token: process.env.BLOB_READ_WRITE_TOKEN! }),
-    del(modelToDelete.thumbnail_url, { token: process.env.BLOB_READ_WRITE_TOKEN! }),
-  ])
-  // Filter out the deleted model and update the database
-  const updatedModels = models.filter((m) => m.id !== id)
-  await saveModelsData({ models: updatedModels })
+  await Promise.all([del(modelToDelete.url, { token: process.env.BLOB_READ_WRITE_TOKEN! }), del(modelToDelete.thumbnail_url, { token: process.env.BLOB_READ_WRITE_TOKEN! })])
+  await saveModelsData({ models: models.filter((m) => m.id !== id) })
 }
 
-// Move models to a different project
-export async function moveModelsToProject(
-  modelIds: string[],
-  targetProjectId: string
-): Promise<boolean> {
+export async function moveModelsToProject(modelIds: string[], targetProjectId: string): Promise<boolean> {
   try {
-    // For each model ID, update its project_id in the database
-    for (const id of modelIds) {
-      const { error } = await supabaseAdmin
-        .from('project_models')
-        .update({ project_id: targetProjectId })
-        .eq('id', id);
-      
-      if (error) throw error;
-    }
-    
-    return true;
+    for (const id of modelIds) await supabaseAdmin.from("project_models").update({ project_id: targetProjectId }).eq("id", id)
+    return true
   } catch (error) {
-    console.error('Error moving models:', error);
-    return false;
+    console.error("Error moving models:", error)
+    return false
   }
 }
 
-// Rename models (single or batch)
-export async function renameModels(
-  modelIds: string[],
-  newName: string
-): Promise<boolean> {
+export async function renameModels(modelIds: string[], newName: string): Promise<boolean> {
   try {
-    // If multiple models, add numeric suffix
-    if (modelIds.length > 1) {
-      for (let i = 0; i < modelIds.length; i++) {
-        const { error } = await supabaseAdmin
-          .from('project_models')
-          .update({ name: `${newName}-${i + 1}` })
-          .eq('id', modelIds[i]);
+    for (let i = 0; i < modelIds.length; i++) await supabaseAdmin.from("project_models").update({ name: modelIds.length > 1 ? `${newName}-${i + 1}` : newName }).eq("id", modelIds[i])
+    return true
+  } catch (error) {
+    console.error("Error renaming models:", error)
+    return false
+  }
+}
+
+export async function deleteModelsByIds(modelIds: string[]): Promise<boolean> {
+  try {
+    await supabaseAdmin.from("project_models").delete().in("id", modelIds)
+    return true
+  } catch (error) {
+    console.error("Error deleting models:", error)
+    return false
+  }
+}
+
+export async function getProjects(): Promise<Project[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("projects")
+      .select("*")
+      .order("created_at", { ascending: false })
+    
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    console.error("Error fetching projects:", error)
+    return []
+  }
+}
+
+export async function getProjectModels(projectId: string): Promise<ProjectModel[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("project_models")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("created_at", { ascending: false })
+    
+    if (error) throw error
+    return data || []
+  } catch (error) {
+    console.error("Error fetching project models:", error)
+    return []
+  }
+}
+
+// Updated to merge projects with the same name
+export async function createProject(name: string): Promise<Project | null> {
+  try {
+    // First check if a project with the same name already exists
+    const { data: existingProject, error: findError } = await supabaseAdmin
+      .from("projects")
+      .select("*")
+      .ilike("name", name) // Case-insensitive match
+      .maybeSingle();
+    
+    if (findError) throw findError;
+    
+    // If project with same name exists, return it
+    if (existingProject) {
+      // Update the project's updated_at timestamp
+      await supabaseAdmin
+        .from("projects")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", existingProject.id);
         
-        if (error) throw error;
-      }
-    } else if (modelIds.length === 1) {
-      // Single model rename
-      const { error } = await supabaseAdmin
-        .from('project_models')
-        .update({ name: newName })
-        .eq('id', modelIds[0]);
-      
-      if (error) throw error;
+      return existingProject;
     }
     
-    return true;
-  } catch (error) {
-    console.error('Error renaming models:', error);
-    return false;
-  }
-}
-
-// Bulk delete models by IDs
-export async function deleteModelsByIds(
-  modelIds: string[]
-): Promise<boolean> {
-  try {
-    // Delete multiple models
-    const { error } = await supabaseAdmin
-      .from('project_models')
-      .delete()
-      .in('id', modelIds);
+    // Otherwise create a new project
+    const { data, error } = await supabaseAdmin
+      .from("projects")
+      .insert({ name })
+      .select()
+      .single();
     
     if (error) throw error;
-    return true;
+    return data;
   } catch (error) {
-    console.error('Error deleting models:', error);
+    console.error("Error creating/finding project:", error);
+    return null;
+  }
+}
+
+// Enhanced to ensure all GLB files are saved
+export async function saveModelToProject(
+  projectId: string,
+  modelUrl: string,
+  thumbnailUrl: string,
+  inputImage: string,
+  resolution: number,
+  name?: string
+): Promise<boolean> {
+  try {
+    const modelHash = createHash("md5").update(modelUrl).digest("hex")
+    
+    const { error } = await supabaseAdmin.from("project_models").insert({
+      project_id: projectId,
+      model_url: modelUrl,
+      thumbnail_url: thumbnailUrl,
+      input_image: inputImage,
+      resolution,
+      name: name || `Model-${new Date().toISOString().slice(0, 10)}`,
+      model_hash: modelHash
+    })
+    
+    if (error) throw error
+    
+    // Also save to general storage for display in the "Stored" tab
+    await saveModelToDatabase(modelUrl, inputImage, resolution)
+    
+    return true
+  } catch (error) {
+    console.error("Error saving model to project:", error)
+    return false
+  }
+}
+
+// Enhanced save model function to ensure all GLB files are properly stored
+export async function saveModelToDatabase(
+  modelUrl: string,
+  inputImage: string,
+  resolution: number
+): Promise<boolean> {
+  try {
+    // Skip if not a GLB URL
+    if (!modelUrl.includes('.glb')) {
+      return false;
+    }
+    
+    const modelHash = createHash("md5").update(modelUrl).digest("hex")
+    const data = await getModelsData()
+    
+    // Check if this model already exists in storage
+    if (data.models.some(m => m.model_hash === modelHash || m.url === modelUrl)) {
+      return true; // Model already exists
+    }
+    
+    const newModel: SavedModel = {
+      id: modelHash,
+      url: modelUrl,
+      thumbnail_url: inputImage, // Using input image as thumbnail
+      input_image: inputImage,
+      resolution: resolution || 256,
+      model_hash: modelHash,
+      created_at: new Date().toISOString()
+    }
+    
+    await saveModelsData({ models: [...data.models, newModel] })
+    return true
+  } catch (error) {
+    console.error("Error saving model to database:", error)
+    return false
+  }
+}
+
+// Enhanced to automatically store GLB files to both projects and general storage
+export async function checkAndStoreCompletedPredictions(): Promise<boolean> {
+  try {
+    // Get all pending predictions
+    const { data: pendingPredictions, error } = await supabaseAdmin
+      .from("prediction_storage")
+      .select("*")
+      .eq("status", "pending")
+    
+    if (error) throw error
+    
+    // Also fetch recent predictions from Replicate API that might not be in storage
+    const replicatePredictions = await getPredictions();
+    const successfulReplicatePredictions = replicatePredictions.filter(
+      p => p.status === "succeeded" && 
+           p.output?.mesh && 
+           !pendingPredictions?.some(pp => pp.prediction_id === p.id)
+    );
+    
+    let allSuccess = true;
+    
+    // Process stored predictions
+    for (const prediction of pendingPredictions || []) {
+      try {
+        const pred = await replicate.predictions.get(prediction.prediction_id);
+        
+        if (pred.status === "succeeded" && pred.output?.mesh) {
+          // Update model in the project if it has a project
+          if (prediction.project_id) {
+            await supabaseAdmin
+              .from("project_models")
+              .update({
+                status: "succeeded",
+                model_url: pred.output.mesh,
+                thumbnail_url: pred.input.image || ""
+              })
+              .eq("prediction_id", prediction.prediction_id);
+          }
+          
+          // Always save to general storage
+          await saveModelToDatabase(
+            pred.output.mesh,
+            pred.input.image || "",
+            pred.input.octree_resolution || 256
+          );
+          
+          // Mark as stored
+          await supabaseAdmin
+            .from("prediction_storage")
+            .update({ status: "stored" })
+            .eq("prediction_id", prediction.prediction_id);
+        } else if (pred.status === "failed" || pred.error) {
+          await supabaseAdmin
+            .from("prediction_storage")
+            .update({ status: "failed" })
+            .eq("prediction_id", prediction.prediction_id);
+          
+          if (prediction.project_id) {
+            await supabaseAdmin
+              .from("project_models")
+              .update({ status: "failed" })
+              .eq("prediction_id", prediction.prediction_id);
+          }
+        }
+      } catch (err) {
+        console.error(`Error processing prediction ${prediction.prediction_id}:`, err);
+        allSuccess = false;
+      }
+    }
+    
+    // Process predictions from Replicate API that aren't in storage
+    for (const pred of successfulReplicatePredictions) {
+      try {
+        if (pred.output?.mesh && pred.input?.image) {
+          // Save to general storage
+          await saveModelToDatabase(
+            pred.output.mesh,
+            pred.input.image,
+            pred.input.octree_resolution || 256
+          );
+        }
+      } catch (err) {
+        console.error(`Error processing API prediction ${pred.id}:`, err);
+        allSuccess = false;
+      }
+    }
+    
+    return allSuccess;
+  } catch (error) {
+    console.error("Error checking and storing predictions:", error);
     return false;
+  }
+}
+
+export async function uploadImage(formData: FormData): Promise<{ url: string }> {
+  try {
+    const file = formData.get("image") as File
+    if (!file) {
+      throw new Error("No image file provided")
+    }
+    
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const filename = `${createHash("md5").update(buffer).digest("hex")}-${file.name}`
+    
+    const { url } = await put(`uploads/${filename}`, buffer, {
+      access: "public",
+      token: process.env.BLOB_READ_WRITE_TOKEN!,
+      contentType: file.type,
+    })
+    
+    return { url }
+  } catch (error) {
+    console.error("Error uploading image:", error)
+    throw new Error("Failed to upload image")
   }
 }

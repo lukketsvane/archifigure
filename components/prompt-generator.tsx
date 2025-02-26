@@ -12,9 +12,9 @@ import { toast } from "sonner";
 
 export function PromptGenerator({ onGenerateImages }) {
   // Changed default prompt
-  const defaultPrompt = "full frame image of a single {person} scandinavian {pose}";
+  const defaultPrompt = "full frame image of a {person} scandinavian {pose}";
   // Updated suffix
-  const promptSuffix = ", full standing body, head to toe view, studio lighting, set stark against a solid white background";
+  const promptSuffix = ", head to toe view, studio lighting, set stark against a solid white background";
   
   const [basePrompt, setBasePrompt] = useState(defaultPrompt);
   const [lists, setLists] = useState({});
