@@ -495,72 +495,66 @@ export default function ModelGenerator() {
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 p-4 overflow-y-auto relative">
               <Card className="w-full h-full relative overflow-hidden border">
-                {modelUrl ? (
-                  <div className="absolute inset-0">
-                    <ModelViewer
-                      url={modelUrl}
-                      inputImage={imageUrls[0]}
-                      resolution={formData.octree_resolution}
-                      currentProjectId={currentProjectId}
-                      onProjectSelect={setCurrentProjectId}
-                    />
-                  </div>
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
-                    {loading ? (
-                      <div className="flex flex-col items-center space-y-2">
-                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                        <p className="text-sm text-muted-foreground">Snekrar figur...</p>
-                      </div>
-                    ) : imageUrls.length > 0 ? (
-                      <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
-                        {imageUrls.map((url) => (
-                          <div key={url} className="relative border rounded aspect-square overflow-hidden">
-                            <Image
-                              src={url || "/placeholder.svg"}
-                              alt="Input"DA
-                              fill
-                              className="object-cover"
-                              unoptimized
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/70 hover:bg-background/90"
-                              onClick={() => removeImage(url)}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                      ) : (
-                        <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
-  {!currentProjectId && (
-    <Button onClick={() => setProjectDialogOpen(true)}>
-      <FolderPlus className="h-4 w-4 mr-2" />
-      Opprett prosjekt
-    </Button>
-  )}
-  
-  <div className="mt-8 border-t pt-4 w-full">
-    <p className="text-sm text-muted-foreground mb-2">
-      Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
-    </p>
-    <div className="flex justify-center">
-      <a href="https://ibb.co/xyDb4P6" target="_blank" rel="noopener noreferrer">
-        <img 
-          src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
-          alt="vipps" 
-          className="w-64 h-64 object-contain" 
-        />
-      </a>
-    </div>
+              {modelUrl ? (
+  <div className="absolute inset-0">
+    <ModelViewer
+      url={modelUrl}
+      inputImage={imageUrls[0]}
+      resolution={formData.octree_resolution}
+      currentProjectId={currentProjectId}
+      onProjectSelect={setCurrentProjectId}
+    />
   </div>
-</div>
-)}
-</div>
+) : (
+  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
+    {loading ? (
+      <div className="flex flex-col items-center space-y-2">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <p className="text-sm text-muted-foreground">Snekrar figur...</p>
+      </div>
+    ) : imageUrls.length > 0 ? (
+      <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
+        {imageUrls.map((url) => (
+          <div key={url} className="relative border rounded aspect-square overflow-hidden">
+            <Image
+              src={url || "/placeholder.svg"}
+              alt="Input"
+              fill
+              className="object-cover"
+              unoptimized
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/70 hover:bg-background/90"
+              onClick={() => removeImage(url)}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        ))}
+      </div>
+    ) : (
+        <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
+          <div className="mt-8 border-t pt-4 w-full">
+            <div className="flex justify-center">
+              <img 
+                src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
+                alt="vipps" 
+                className="w-64 h-64 object-contain rounded-lg" 
+              />
+            </div>
+            <div className="mt-4">
+              <p className="text-sm text-muted-foreground mb-2">
+                Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
+              </p>
+            </div>
+          </div>
+        </div>
+
+    )}
+  </div>
 )}
 </Card>
 </div>
