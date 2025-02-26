@@ -1,4 +1,3 @@
-// app/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -44,22 +43,15 @@ import Link from "next/link";
 import { useDropzone } from "react-dropzone";
 import { Project } from "@/types/database";
 
-interface UploadZoneProps {
-  onUploadComplete: (url: string) => void;
-  onError: (msg: string) => void;
-  currentCount: number;
-  maxImages: number;
-}
-
 function UploadZone({
   onUploadComplete,
   onError,
   currentCount,
   maxImages,
-}: UploadZoneProps) {
+}) {
   const [uploading, setUploading] = useState(false);
 
-  const handleDrop = async (acceptedFiles: File[]) => {
+  const handleDrop = async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return;
     const allowedCount = Math.min(acceptedFiles.length, maxImages - currentCount);
     if (allowedCount <= 0) {
@@ -117,6 +109,7 @@ function UploadZone({
 }
 
 export default function ModelGenerator() {
+  // State variables
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);
   const [imageUrls, setImageUrls] = useState([]);
@@ -130,7 +123,9 @@ export default function ModelGenerator() {
   const [mobileGalleryOpen, setMobileGalleryOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState([]);
+  const [cooldown, setCooldown] = useState(0);
+  const [timeoutId, setTimeoutId] = useState(null);
   
   const [formData, setFormData] = useState({
     steps: 50,
@@ -139,8 +134,6 @@ export default function ModelGenerator() {
     octree_resolution: 256,
     remove_background: true,
   });
-  const [cooldown, setCooldown] = useState(0);
-  const [timeoutId, setTimeoutId] = useState(null);
 
   // Load projects on mount
   useEffect(() => {
@@ -170,7 +163,6 @@ export default function ModelGenerator() {
 
   // Process predictions concurrently
   async function processPredictionsConcurrently(urls, concurrency) {
-    // Validate project ID if needed
     if (!currentProjectId) {
       toast.error("Please select or create a project first");
       return [];
@@ -200,7 +192,7 @@ export default function ModelGenerator() {
           results[index] = await generateModel({ 
             image: urls[index], 
             ...formData,
-            project_id: currentProjectId  // Pass project ID to the model generation function
+            project_id: currentProjectId
           });
         } catch (error) {
           results[index] = { error };
@@ -221,7 +213,6 @@ export default function ModelGenerator() {
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     
-    // Require project selection
     if (!currentProjectId) {
       toast.error("Please select or create a project first");
       setProjectDialogOpen(true);
@@ -314,7 +305,7 @@ export default function ModelGenerator() {
   return (
     <PasswordLock>
       <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
-        {/* Custom Navbar with mobile gallery toggle */}
+        {/* Navbar */}
         <div className="border-b">
           <div className="flex h-14 items-center px-4 max-w-screen-2xl mx-auto">
             <div className="flex items-center space-x-2 font-semibold text-xl">
@@ -349,8 +340,9 @@ export default function ModelGenerator() {
           onSelectModel={(meshUrl, inputImage, resolution) => {
             setModelUrl(meshUrl);
             if (inputImage) setImageUrls([inputImage]);
-            if (resolution)
+            if (resolution) {
               setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
+            }
           }}
           pendingSubmissions={pendingSubmissions}
           currentProjectId={currentProjectId}
@@ -614,13 +606,16 @@ export default function ModelGenerator() {
               <Card className="w-full h-full relative overflow-hidden border">
                 {modelUrl ? (
                   <div className="absolute inset-0">
-                    <ModelViewer
-                      url={modelUrl}
-                      inputImage={imageUrls[0]}
-                      resolution={formData.octree_resolution}
-                      currentProjectId={currentProjectId}
-                      onProjectSelect={setCurrentProjectId}
-                    />
+                    {/* For mobile, we apply the aspect-square class to ensure 1:1 ratio */}
+                    <div className="w-full h-full md:h-full aspect-square md:aspect-auto">
+                      <ModelViewer
+                        url={modelUrl}
+                        inputImage={imageUrls[0]}
+                        resolution={formData.octree_resolution}
+                        currentProjectId={currentProjectId}
+                        onProjectSelect={setCurrentProjectId}
+                      />
+                    </div>
                   </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">

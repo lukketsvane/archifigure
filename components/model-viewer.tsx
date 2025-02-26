@@ -1,3 +1,4 @@
+// components/model-viewer.tsx
 "use client"
 
 import { Suspense, useState, useEffect, useRef, useCallback } from "react"
@@ -5,7 +6,7 @@ import { Canvas, useThree } from "@react-three/fiber"
 import { OrbitControls, Html } from "@react-three/drei"
 import { GLTFLoader } from "three-stdlib"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertCircle, Layers, Download, Save, Loader2, X } from "lucide-react"
+import { AlertCircle, Layers, Download, Save, Loader2, Expand, X } from "lucide-react"
 import * as THREE from "three"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
@@ -325,18 +326,10 @@ export function ModelViewer({
   const [isMobile, setIsMobile] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   
-  // Check if viewing on mobile and set initial fullscreen state
+  // Check if viewing on mobile
   useEffect(() => {
     const checkMobile = () => {
-      const mobile = window.innerWidth < 768
-      setIsMobile(mobile)
-      
-      // Automatically set fullscreen on mobile when a model is loaded
-      if (mobile && url) {
-        setIsFullscreen(true)
-      } else if (!mobile) {
-        setIsFullscreen(false)
-      }
+      setIsMobile(window.innerWidth < 768)
     }
     
     checkMobile()
@@ -345,14 +338,7 @@ export function ModelViewer({
     return () => {
       window.removeEventListener('resize', checkMobile)
     }
-  }, [url])
-  
-  // Auto-enter fullscreen mode when URL changes on mobile
-  useEffect(() => {
-    if (isMobile && url) {
-      setIsFullscreen(true)
-    }
-  }, [url, isMobile])
+  }, [])
   
   // Load projects on mount
   useEffect(() => {
@@ -398,7 +384,7 @@ export function ModelViewer({
         const result = await saveModelToProject(
           selectedProjectId,
           url,
-          inputImage, // Using input image as thumbnail for simplicity
+          inputImage, // Using input image as thumbnail
           inputImage,
           resolution
         );
@@ -435,8 +421,8 @@ export function ModelViewer({
     }
   };
 
-  const exitFullscreen = () => {
-    setIsFullscreen(false);
+  const toggleFullscreen = () => {
+    setIsFullscreen(prev => !prev);
   };
 
   // Conditional classes for the fullscreen mobile view
@@ -452,7 +438,7 @@ export function ModelViewer({
           <Button
             variant="ghost"
             size="icon"
-            onClick={exitFullscreen}
+            onClick={toggleFullscreen}
           >
             <X className="h-5 w-5" />
           </Button>
@@ -465,6 +451,19 @@ export function ModelViewer({
           <ModelContent url={url} onError={handleError} />
         </Suspense>
       </Canvas>
+      
+      {/* Fullscreen button for mobile */}
+      {isMobile && !isFullscreen && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="absolute top-3 right-3 h-8 bg-background/50 backdrop-blur-sm z-10"
+          onClick={toggleFullscreen}
+        >
+          <Expand className="h-3 w-3 mr-2" />
+          Fullscreen
+        </Button>
+      )}
       
       {/* Controls positioned at the bottom */}
       <div className={`${isFullscreen ? 'absolute bottom-6' : 'absolute bottom-3'} left-0 right-0 flex justify-center gap-2 z-10 px-4`}>
