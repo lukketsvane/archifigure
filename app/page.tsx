@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -24,19 +25,24 @@ import {
   ChevronUp, 
   ChevronDown,
   ChevronRight,
-  Settings
+  Settings,
+  FolderPlus,
+  Github,
+  LayoutGrid
 } from "lucide-react";
 import Image from "next/image";
-import { generateModel, uploadImage } from "./actions";
-import { MobileControls } from "@/components/mobile-controls";
+import { generateModel, uploadImage, getProjects } from "./actions";
 import PasswordLock from "@/components/password-lock";
 import { toast } from "sonner";
 import { ImageGeneration } from "@/components/image-generation";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MobileGallery } from "@/components/mobile-gallery";
-import { Navbar } from "@/components/navbar";
+import { ProjectDialog } from "@/components/project-dialog";
+import { Label } from "@/components/ui/label";
+import Link from "next/link";
 
 import { useDropzone } from "react-dropzone";
+import { Project } from "@/types/database";
 
 interface UploadZoneProps {
   onUploadComplete: (url: string) => void;
@@ -122,6 +128,10 @@ export default function ModelGenerator() {
   const [gridExpanded, setGridExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileGalleryOpen, setMobileGalleryOpen] = useState(false);
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
+  const [currentProjectId, setCurrentProjectId] = useState(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  
   const [formData, setFormData] = useState({
     steps: 50,
     guidance_scale: 5.5,
@@ -132,6 +142,25 @@ export default function ModelGenerator() {
   const [cooldown, setCooldown] = useState(0);
   const [timeoutId, setTimeoutId] = useState(null);
 
+  // Load projects on mount
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const projectsList = await getProjects();
+        setProjects(projectsList);
+        
+        // If there's at least one project, select the first one
+        if (projectsList.length > 0 && !currentProjectId) {
+          setCurrentProjectId(projectsList[0].id);
+        }
+      } catch (error) {
+        console.error("Failed to load projects:", error);
+      }
+    };
+    
+    loadProjects();
+  }, [currentProjectId]);
+
   // Reset cooldown timer on unmount
   useEffect(() => {
     return () => {
@@ -141,6 +170,12 @@ export default function ModelGenerator() {
 
   // Process predictions concurrently
   async function processPredictionsConcurrently(urls, concurrency) {
+    // Validate project ID if needed
+    if (!currentProjectId) {
+      toast.error("Please select or create a project first");
+      return [];
+    }
+    
     const results = [];
     let currentIndex = 0;
     
@@ -152,7 +187,8 @@ export default function ModelGenerator() {
         image: url,
         octree_resolution: formData.octree_resolution
       },
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      project_id: currentProjectId
     }));
     
     setPendingSubmissions(prev => [...newPendingSubmissions, ...prev]);
@@ -161,7 +197,11 @@ export default function ModelGenerator() {
       while (currentIndex < urls.length) {
         const index = currentIndex++;
         try {
-          results[index] = await generateModel({ image: urls[index], ...formData });
+          results[index] = await generateModel({ 
+            image: urls[index], 
+            ...formData,
+            project_id: currentProjectId  // Pass project ID to the model generation function
+          });
         } catch (error) {
           results[index] = { error };
         }
@@ -180,13 +220,28 @@ export default function ModelGenerator() {
 
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
+    
+    // Require project selection
+    if (!currentProjectId) {
+      toast.error("Please select or create a project first");
+      setProjectDialogOpen(true);
+      return;
+    }
+    
     if (imageUrls.length === 0 || cooldown > 0) return;
+    
     setLoading(true);
     setError("");
     setSuccess(false);
     
     try {
       const results = await processPredictionsConcurrently(imageUrls, 10);
+      
+      if (!results.length) {
+        setError("Generation failed");
+        return;
+      }
+      
       const allFailed = results.every((r) => r.error);
       
       if (allFailed) {
@@ -225,7 +280,7 @@ export default function ModelGenerator() {
     setImageUrls(urls);
     
     // Auto-submit for 3D generation if enabled
-    if (urls.length > 0 && !cooldown && autoGenerateMeshes) {
+    if (urls.length > 0 && !cooldown && autoGenerateMeshes && currentProjectId) {
       handleSubmit();
     }
   };
@@ -234,6 +289,18 @@ export default function ModelGenerator() {
     if (submissions && submissions.length > 0) {
       setPendingSubmissions(prev => [...submissions, ...prev]);
     }
+  };
+
+  const handleProjectCreated = (projectId, projectName) => {
+    setCurrentProjectId(projectId);
+    setProjects(prev => [{ 
+      id: projectId, 
+      name: projectName, 
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, ...prev]);
+    setProjectDialogOpen(false);
+    toast.success(`Project "${projectName}" created`);
   };
 
   // Color scheme inspired by Figma
@@ -248,7 +315,32 @@ export default function ModelGenerator() {
     <PasswordLock>
       <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
         {/* Custom Navbar with mobile gallery toggle */}
-        <Navbar onOpenGallery={() => setMobileGalleryOpen(true)} />
+        <div className="border-b">
+          <div className="flex h-14 items-center px-4 max-w-screen-2xl mx-auto">
+            <div className="flex items-center space-x-2 font-semibold text-xl">
+              <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">ArchiFigure.io</span>
+              <span className="text-sm text-muted-foreground hidden md:inline-block">• 3D figures for architectural models</span>
+            </div>
+            <div className="ml-auto flex items-center space-x-4">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                onClick={() => setMobileGalleryOpen(true)}
+              >
+                <LayoutGrid className="h-5 w-5" />
+              </Button>
+              <Link
+                href="https://github.com/your-username/your-repo"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Github className="h-5 w-5" />
+              </Link>
+            </div>
+          </div>
+        </div>
         
         {/* Mobile Gallery Component */}
         <MobileGallery
@@ -261,6 +353,15 @@ export default function ModelGenerator() {
               setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
           }}
           pendingSubmissions={pendingSubmissions}
+          currentProjectId={currentProjectId}
+          onCreateProject={() => setProjectDialogOpen(true)}
+        />
+        
+        {/* Project Dialog */}
+        <ProjectDialog
+          open={projectDialogOpen}
+          onOpenChange={setProjectDialogOpen}
+          onProjectCreated={handleProjectCreated}
         />
         
         {/* Main content area */}
@@ -275,6 +376,34 @@ export default function ModelGenerator() {
                 </TabsList>
                 
                 <TabsContent value="upload" className="space-y-4">
+                  {/* Project selection */}
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="project" className="text-xs">Current Project</Label>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-7 w-7"
+                      onClick={() => setProjectDialogOpen(true)}
+                    >
+                      <FolderPlus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  
+                  {currentProjectId ? (
+                    <div className="text-sm px-2 py-1 bg-muted rounded-md">
+                      {projects?.find(p => p.id === currentProjectId)?.name || "Loading project..."}
+                    </div>
+                  ) : (
+                    <Button 
+                      variant="outline" 
+                      className="w-full justify-center text-muted-foreground"
+                      onClick={() => setProjectDialogOpen(true)}
+                    >
+                      <FolderPlus className="h-4 w-4 mr-2" />
+                      Create Project
+                    </Button>
+                  )}
+                
                   <form onSubmit={handleSubmit} className="space-y-3">
                     <div className="space-y-2">
                       <UploadZone
@@ -406,9 +535,11 @@ export default function ModelGenerator() {
                       type="submit"
                       className="w-full h-10 text-sm relative overflow-hidden"
                       style={{ 
-                        background: loading || cooldown > 0 ? "#666" : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
+                        background: loading || cooldown > 0 || !currentProjectId 
+                          ? "#666" 
+                          : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
                       }}
-                      disabled={loading || imageUrls.length === 0 || cooldown > 0}
+                      disabled={loading || imageUrls.length === 0 || cooldown > 0 || !currentProjectId}
                     >
                       <span className="mr-auto">
                         {loading ? (
@@ -424,6 +555,8 @@ export default function ModelGenerator() {
                               style={{ width: `${(cooldown / 120) * 100}%`, transition: "width 1s linear" }}
                             />
                           </>
+                        ) : !currentProjectId ? (
+                          "Create a Project First"
                         ) : (
                           "Generate 3D Model"
                         )}
@@ -437,17 +570,22 @@ export default function ModelGenerator() {
                     <h2 className="text-lg font-medium">How to use ArchiFigure.io</h2>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">1. Get an image</h3>
+                      <h3 className="font-medium">1. Create a project</h3>
+                      <p className="text-muted-foreground text-xs">Start by creating a project to organize your 3D models.</p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <h3 className="font-medium">2. Get an image</h3>
                       <p className="text-muted-foreground text-xs">Upload your own image of a person, or use our text-to-image generator to create one.</p>
                     </div>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">2. Generate 3D model</h3>
+                      <h3 className="font-medium">3. Generate 3D model</h3>
                       <p className="text-muted-foreground text-xs">Once you have an image, click "Generate 3D Model" to create a 3D figure.</p>
                     </div>
                     
                     <div className="space-y-2">
-                      <h3 className="font-medium">3. View and download</h3>
+                      <h3 className="font-medium">4. View and download</h3>
                       <p className="text-muted-foreground text-xs">When processing is complete, view your 3D model and download the GLB file for use in your architectural projects.</p>
                     </div>
                     
@@ -480,6 +618,8 @@ export default function ModelGenerator() {
                       url={modelUrl}
                       inputImage={imageUrls[0]}
                       resolution={formData.octree_resolution}
+                      currentProjectId={currentProjectId}
+                      onProjectSelect={setCurrentProjectId}
                     />
                   </div>
                 ) : (
@@ -519,8 +659,14 @@ export default function ModelGenerator() {
                         </div>
                         <h3 className="text-lg font-medium">No Model Selected</h3>
                         <p className="text-sm text-muted-foreground">
-                          Upload an image or use the generator to create a 3D figure
+                          First create a project, then upload an image or use the generator to create a 3D figure
                         </p>
+                        {!currentProjectId && (
+                          <Button onClick={() => setProjectDialogOpen(true)}>
+                            <FolderPlus className="h-4 w-4 mr-2" />
+                            Create Project
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -552,6 +698,8 @@ export default function ModelGenerator() {
                         setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
                     }}
                     pendingSubmissions={pendingSubmissions}
+                    currentProjectId={currentProjectId}
+                    onCreateProject={() => setProjectDialogOpen(true)}
                   />
                 </div>
               )}

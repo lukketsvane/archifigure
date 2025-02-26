@@ -1,9 +1,10 @@
-// /app/actions.ts
 "use server"
 
 import Replicate from "replicate"
 import { put, list, del } from "@vercel/blob"
 import { createHash } from "crypto"
+import { supabaseAdmin } from "@/lib/supabase"
+import { Project, ProjectModel } from "@/types/database"
 
 const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN })
 
@@ -16,6 +17,7 @@ export type SavedModel = {
   resolution: number
   model_hash: string
 }
+
 
 export type Prediction = {
   id: string
@@ -243,4 +245,141 @@ export async function deleteSavedModel(id: string): Promise<void> {
   // Filter out the deleted model and update the database
   const updatedModels = models.filter((m) => m.id !== id)
   await saveModelsData({ models: updatedModels })
+}
+
+export async function createProject(name: string): Promise<Project | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .insert({ name })
+      .select()
+      .single();
+      
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error creating project:', error);
+    return null;
+  }
+}
+
+// Get all projects
+export async function getProjects(): Promise<Project[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    return [];
+  }
+}
+
+// Get a specific project by ID
+export async function getProject(id: string): Promise<Project | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+      
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    return null;
+  }
+}
+
+// Get models for a specific project
+export async function getProjectModels(projectId: string): Promise<ProjectModel[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('project_models')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching project models:', error);
+    return [];
+  }
+}
+
+// Save a model to a project
+export async function saveModelToProject(
+  projectId: string,
+  modelUrl: string,
+  thumbnailUrl: string,
+  inputImage: string,
+  resolution: number
+): Promise<ProjectModel | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('project_models')
+      .insert({
+        project_id: projectId,
+        model_url: modelUrl,
+        thumbnail_url: thumbnailUrl,
+        input_image: inputImage,
+        resolution: resolution,
+      })
+      .select()
+      .single();
+      
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error saving model to project:', error);
+    return null;
+  }
+}
+
+// Delete a project and all its models
+export async function deleteProject(projectId: string): Promise<boolean> {
+  try {
+    // First, delete all models in the project
+    const { error: modelsError } = await supabaseAdmin
+      .from('project_models')
+      .delete()
+      .eq('project_id', projectId);
+      
+    if (modelsError) throw modelsError;
+    
+    // Then delete the project
+    const { error: projectError } = await supabaseAdmin
+      .from('projects')
+      .delete()
+      .eq('id', projectId);
+      
+    if (projectError) throw projectError;
+    
+    return true;
+  } catch (error) {
+    console.error('Error deleting project:', error);
+    return false;
+  }
+}
+
+// Delete a specific model
+export async function deleteProjectModel(modelId: string): Promise<boolean> {
+  try {
+    const { error } = await supabaseAdmin
+      .from('project_models')
+      .delete()
+      .eq('id', modelId);
+      
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting model:', error);
+    return false;
+  }
 }

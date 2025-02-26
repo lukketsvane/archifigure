@@ -10,13 +10,17 @@ interface MobileGalleryProps {
   onClose: () => void;
   onSelectModel: (meshUrl: string, inputImage?: string, resolution?: number) => void;
   pendingSubmissions?: any[];
+  currentProjectId?: string | null;
+  onCreateProject?: () => void;
 }
 
 export function MobileGallery({ 
   isOpen, 
   onClose, 
   onSelectModel,
-  pendingSubmissions = []
+  pendingSubmissions = [],
+  currentProjectId,
+  onCreateProject
 }: MobileGalleryProps) {
   if (!isOpen) return null;
 
@@ -36,6 +40,8 @@ export function MobileGallery({
           }}
           showAll={true}
           pendingSubmissions={pendingSubmissions}
+          currentProjectId={currentProjectId}
+          onCreateProject={onCreateProject}
         />
       </div>
     </div>

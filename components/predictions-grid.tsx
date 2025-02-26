@@ -1,12 +1,14 @@
+// components/predictions-grid.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, Save, AlertCircle, Trash2, Eye, EyeOff } from "lucide-react";
+import { CheckCircle2, Circle, Save, AlertCircle, Trash2, Eye, EyeOff, FolderOpen, Plus } from "lucide-react";
 import Image from "next/image";
 import type { Prediction, SavedModel } from "@/app/actions";
-import { getSavedModels } from "@/app/actions";
+import { Project, ProjectModel } from "@/types/database";
+import { getSavedModels, getProjects, getProjectModels, deleteProject, deleteProjectModel } from "@/app/actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,33 +25,43 @@ type PredictionsGridProps = {
   onSelectModel: (meshUrl: string, inputImage?: string, resolution?: number) => void;
   showAll?: boolean;
   pendingSubmissions?: PendingSubmission[];
+  currentProjectId?: string | null;
+  onCreateProject?: () => void;
 };
 
 type PredictionsState = {
   predictions: Prediction[];
   savedModels: SavedModel[];
   pendingSubmissions: PendingSubmission[];
+  projects: Project[];
+  projectModels: Record<string, ProjectModel[]>;
   loading: boolean;
-  activeTab: "replicate" | "stored";
+  activeTab: "replicate" | "stored" | "projects";
   error: string | null;
   consecutiveErrors: number;
   showInProgress: boolean;
+  selectedProjectId: string | null;
 };
 
 export const PredictionsGrid = ({ 
   onSelectModel, 
   showAll = false, 
-  pendingSubmissions = [] 
+  pendingSubmissions = [],
+  currentProjectId,
+  onCreateProject
 }: PredictionsGridProps) => {
   const [state, setState] = useState<PredictionsState>({
     predictions: [],
     savedModels: [],
     pendingSubmissions: [],
+    projects: [],
+    projectModels: {},
     loading: true,
-    activeTab: "replicate",
+    activeTab: currentProjectId ? "projects" : "replicate",
     error: null,
     consecutiveErrors: 0,
     showInProgress: true,
+    selectedProjectId: currentProjectId || null,
   });
 
   // Update pending submissions when prop changes
@@ -62,6 +74,17 @@ export const PredictionsGrid = ({
     }
   }, [pendingSubmissions]);
 
+  // Update current project ID when prop changes
+  useEffect(() => {
+    if (currentProjectId) {
+      setState(prev => ({
+        ...prev,
+        selectedProjectId: currentProjectId,
+        activeTab: "projects"
+      }));
+    }
+  }, [currentProjectId]);
+
   useEffect(() => {
     let mounted = true;
     let pollInterval: NodeJS.Timeout;
@@ -70,6 +93,7 @@ export const PredictionsGrid = ({
       try {
         if (!mounted) return;
 
+        // Fetch replicate models
         if (state.activeTab === "replicate") {
           const res = await fetch(`/api/predictions?t=${Date.now()}`, {
             cache: "no-store",
@@ -103,7 +127,7 @@ export const PredictionsGrid = ({
             }
           });
 
-          // Apply filtering based on showInProgress state rather than showAll prop
+          // Apply filtering based on showInProgress state
           const filteredPredictions = showAll || state.showInProgress
             ? validPredictions
             : validPredictions.filter((p) => p.status === "succeeded");
@@ -145,6 +169,60 @@ export const PredictionsGrid = ({
             }));
           }
         }
+
+        // Fetch projects
+        if (state.activeTab === "projects") {
+          try {
+            const projects = await getProjects();
+            
+            // If there's a selected project or if we just fetched projects
+            if (state.selectedProjectId || projects.length > 0) {
+              const projectId = state.selectedProjectId || projects[0]?.id;
+              
+              if (projectId) {
+                const projectModels = await getProjectModels(projectId);
+                
+                if (mounted) {
+                  setState((prev) => ({
+                    ...prev,
+                    projects,
+                    projectModels: {
+                      ...prev.projectModels,
+                      [projectId]: projectModels
+                    },
+                    selectedProjectId: projectId,
+                    loading: false,
+                  }));
+                }
+              } else {
+                if (mounted) {
+                  setState((prev) => ({
+                    ...prev,
+                    projects,
+                    loading: false,
+                  }));
+                }
+              }
+            } else {
+              if (mounted) {
+                setState((prev) => ({
+                  ...prev,
+                  projects,
+                  loading: false,
+                }));
+              }
+            }
+          } catch (err) {
+            console.error("Failed to fetch projects:", err);
+            if (mounted) {
+              setState((prev) => ({
+                ...prev,
+                error: "Failed to load projects",
+                loading: false,
+              }));
+            }
+          }
+        }
       } catch (err) {
         console.error("Fetch error:", err);
         if (mounted) {
@@ -175,18 +253,45 @@ export const PredictionsGrid = ({
       mounted = false;
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [state.activeTab, state.consecutiveErrors, state.showInProgress, showAll, state.pendingSubmissions]);
+  }, [state.activeTab, state.consecutiveErrors, state.showInProgress, showAll, state.pendingSubmissions, state.selectedProjectId]);
 
   // Count of in-progress items
   const inProgressCount = state.predictions.filter(p => 
     ["starting", "processing"].includes(p.status)
   ).length + state.pendingSubmissions.length;
 
+  const loadProjectModels = async (projectId: string) => {
+    try {
+      setState(prev => ({ ...prev, loading: true, selectedProjectId: projectId }));
+      
+      const projectModels = await getProjectModels(projectId);
+      
+      setState(prev => ({
+        ...prev,
+        projectModels: {
+          ...prev.projectModels,
+          [projectId]: projectModels
+        },
+        loading: false
+      }));
+    } catch (error) {
+      console.error("Error loading project models:", error);
+      toast.error("Failed to load project models");
+      setState(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleCreateProject = () => {
+    if (onCreateProject) {
+      onCreateProject();
+    }
+  };
+
   const renderPendingSubmissionCard = (submission: PendingSubmission) => {
     return (
       <Card
         key={submission.id}
-        className="w-full h-full lg:w-[160px] lg:flex-shrink-0 lg:snap-start opacity-75"
+        className="w-full h-full aspect-square"
       >
         <div className="relative aspect-square bg-muted/60">
           {submission.input.image ? (
@@ -224,7 +329,7 @@ export const PredictionsGrid = ({
     return (
       <Card
         key={prediction.id}
-        className={`w-full h-full lg:w-[160px] lg:flex-shrink-0 lg:snap-start ${
+        className={`w-full h-full aspect-square ${
           isClickable ? "cursor-pointer transition-transform hover:scale-105 active:scale-95" : "opacity-75"
         }`}
         onClick={() => {
@@ -273,7 +378,7 @@ export const PredictionsGrid = ({
   const renderSavedModelCard = (model: SavedModel) => (
     <Card
       key={model.id}
-      className="w-full h-full lg:w-[160px] lg:flex-shrink-0 lg:snap-start cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
+      className="w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
       onClick={() => onSelectModel(model.url, model.input_image, model.resolution)}
     >
       <div className="relative aspect-square">
@@ -324,8 +429,187 @@ export const PredictionsGrid = ({
     </Card>
   );
 
-  const renderContent = (items: (Prediction | SavedModel | PendingSubmission)[], isStored: boolean) => {
-    if (state.error && !isStored) {
+  const renderProjectModelCard = (model: ProjectModel) => (
+    <Card
+      key={model.id}
+      className="w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
+      onClick={() => onSelectModel(model.model_url, model.input_image, model.resolution)}
+    >
+      <div className="relative aspect-square">
+        <Image
+          src={model.thumbnail_url || "/placeholder.svg"}
+          alt="Project model"
+          fill
+          className="object-cover rounded-t-lg"
+          unoptimized
+        />
+        <div className="absolute top-2 right-2 flex gap-1">
+          <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center">
+            <FolderOpen className="w-3 h-3" />
+          </Badge>
+          <Badge
+            variant="destructive"
+            className="h-5 w-5 p-0 flex items-center justify-center cursor-pointer"
+            onClick={async (e) => {
+              e.stopPropagation(); // Prevent model selection
+              try {
+                const success = await deleteProjectModel(model.id);
+                if (success) {
+                  setState((prev) => {
+                    const projectModels = prev.projectModels[model.project_id] || [];
+                    return {
+                      ...prev,
+                      projectModels: {
+                        ...prev.projectModels,
+                        [model.project_id]: projectModels.filter(m => m.id !== model.id)
+                      }
+                    };
+                  });
+                  toast.success("Model deleted successfully");
+                } else {
+                  toast.error("Failed to delete model");
+                }
+              } catch (err) {
+                toast.error("Error deleting model");
+              }
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Badge>
+        </div>
+      </div>
+      <div className="p-2 text-xs text-muted-foreground flex items-center justify-between">
+        <span>{model.resolution}</span>
+        <span>Project</span>
+      </div>
+    </Card>
+  );
+
+  const renderProjectCard = (project: Project) => (
+    <Card
+      key={project.id}
+      className={`w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative ${
+        state.selectedProjectId === project.id ? "ring-2 ring-primary" : ""
+      }`}
+      onClick={() => loadProjectModels(project.id)}
+    >
+      <div className="relative aspect-square bg-muted flex items-center justify-center">
+        <FolderOpen className="h-12 w-12 text-muted-foreground/50" />
+        <div className="absolute top-2 right-2 flex gap-1">
+          <Badge
+            variant="destructive"
+            className="h-5 w-5 p-0 flex items-center justify-center cursor-pointer"
+            onClick={async (e) => {
+              e.stopPropagation(); // Prevent selection
+              
+              if (confirm(`Are you sure you want to delete the project "${project.name}" and all its models?`)) {
+                try {
+                  const success = await deleteProject(project.id);
+                  if (success) {
+                    setState((prev) => {
+                      const newState = {
+                        ...prev,
+                        projects: prev.projects.filter(p => p.id !== project.id),
+                      };
+                      
+                      // Clear the project models cache
+                      const { [project.id]: _, ...remainingProjectModels } = prev.projectModels;
+                      newState.projectModels = remainingProjectModels;
+                      
+                      // If this was the selected project, select another one or clear selection
+                      if (prev.selectedProjectId === project.id) {
+                        newState.selectedProjectId = prev.projects.length > 1 
+                          ? prev.projects.find(p => p.id !== project.id)?.id || null
+                          : null;
+                      }
+                      
+                      return newState;
+                    });
+                    toast.success("Project deleted successfully");
+                  } else {
+                    toast.error("Failed to delete project");
+                  }
+                } catch (err) {
+                  toast.error("Error deleting project");
+                }
+              }
+            }}
+          >
+            <Trash2 className="w-3 h-3" />
+          </Badge>
+        </div>
+      </div>
+      <div className="p-2 text-xs flex flex-col gap-1">
+        <div className="font-medium truncate" title={project.name}>
+          {project.name}
+        </div>
+        <div className="text-muted-foreground">
+          {new Date(project.created_at).toLocaleDateString()}
+        </div>
+      </div>
+    </Card>
+  );
+
+  const renderContent = (contentType: "replicate" | "stored" | "projects") => {
+    if (contentType === "projects") {
+      if (state.loading && state.projects.length === 0) {
+        return (
+          <div className="flex items-center justify-center min-h-[200px] text-sm text-muted-foreground">
+            Loading projects...
+          </div>
+        );
+      }
+
+      if (!state.loading && state.projects.length === 0) {
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[200px] gap-4">
+            <p className="text-sm text-muted-foreground">No projects yet</p>
+            <Button onClick={handleCreateProject} size="sm">
+              <Plus className="h-4 w-4 mr-2" /> Create Project
+            </Button>
+          </div>
+        );
+      }
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between px-4">
+            <h3 className="text-sm font-medium">Projects</h3>
+            <Button onClick={handleCreateProject} size="sm" variant="outline">
+              <Plus className="h-4 w-4 mr-2" /> New Project
+            </Button>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
+            {state.projects.map(renderProjectCard)}
+          </div>
+          
+          {state.selectedProjectId && (
+            <div className="space-y-2 px-4">
+              <h3 className="text-sm font-medium">
+                {state.projects.find(p => p.id === state.selectedProjectId)?.name || "Project"} Models
+              </h3>
+              
+              {state.loading ? (
+                <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+                  Loading models...
+                </div>
+              ) : state.projectModels[state.selectedProjectId]?.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
+                  {state.projectModels[state.selectedProjectId].map(renderProjectModelCard)}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
+                  No models in this project yet
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (state.error && contentType === "replicate") {
       return (
         <div className="flex items-center justify-center min-h-[200px] text-sm text-destructive">
           {state.error}
@@ -333,7 +617,13 @@ export const PredictionsGrid = ({
       );
     }
 
-    if (state.loading && !items.length) {
+    const items = contentType === "replicate" 
+      ? state.predictions 
+      : contentType === "stored" 
+        ? state.savedModels 
+        : [];
+
+    if (state.loading && items.length === 0) {
       return (
         <div className="flex items-center justify-center min-h-[200px] text-sm text-muted-foreground">
           Loading...
@@ -341,25 +631,23 @@ export const PredictionsGrid = ({
       );
     }
 
-    if (!state.loading && !items.length) {
+    if (!state.loading && items.length === 0 && state.pendingSubmissions.length === 0) {
       return (
         <div className="flex items-center justify-center min-h-[200px] text-sm text-muted-foreground">
-          {isStored ? "No saved models" : "No models found"}
+          {contentType === "stored" ? "No saved models" : "No models found"}
         </div>
       );
     }
 
     return (
-      <div className="grid grid-cols-3 gap-3 p-4 overflow-y-auto max-h-[70vh] lg:flex lg:gap-3 lg:overflow-x-auto lg:pb-4 lg:px-4 lg:-mx-4 lg:snap-x lg:snap-mandatory lg:touch-pan-x lg:min-h-[200px]">
-        {/* Always show pending submissions first */}
-        {!isStored && state.pendingSubmissions.map(renderPendingSubmissionCard)}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
+        {/* Always show pending submissions first for replicate tab */}
+        {contentType === "replicate" && state.pendingSubmissions.map(renderPendingSubmissionCard)}
         
         {/* Then show regular items */}
         {items.map(item => {
-          if ('url' in item) {
+          if (contentType === "stored") {
             return renderSavedModelCard(item as SavedModel);
-          } else if ('pendingId' in item) {
-            return null; // Skip pending items as they're handled above
           } else {
             return renderPredictionCard(item as Prediction);
           }
@@ -370,13 +658,14 @@ export const PredictionsGrid = ({
 
   return (
     <Tabs
-      defaultValue="replicate"
+      defaultValue={state.activeTab}
       className="w-full"
       value={state.activeTab}
       onValueChange={(value) =>
         setState((prev) => ({
           ...prev,
-          activeTab: value as "replicate" | "stored",
+          activeTab: value as "replicate" | "stored" | "projects",
+          selectedProjectId: value === "projects" ? prev.selectedProjectId || (prev.projects[0]?.id || null) : null
         }))
       }
     >
@@ -388,6 +677,9 @@ export const PredictionsGrid = ({
             </TabsTrigger>
             <TabsTrigger value="stored" className="text-xs">
               Stored ({state.savedModels.length})
+            </TabsTrigger>
+            <TabsTrigger value="projects" className="text-xs">
+              Projects ({state.projects.length})
             </TabsTrigger>
           </TabsList>
           
@@ -410,10 +702,13 @@ export const PredictionsGrid = ({
         </div>
       </div>
       <TabsContent value="replicate" className="mt-0">
-        {renderContent([...state.predictions], false)}
+        {renderContent("replicate")}
       </TabsContent>
       <TabsContent value="stored" className="mt-0">
-        {renderContent(state.savedModels, true)}
+        {renderContent("stored")}
+      </TabsContent>
+      <TabsContent value="projects" className="mt-0">
+        {renderContent("projects")}
       </TabsContent>
     </Tabs>
   );

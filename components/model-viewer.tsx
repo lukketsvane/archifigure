@@ -5,12 +5,14 @@ import { Canvas, useThree } from "@react-three/fiber"
 import { OrbitControls, Html } from "@react-three/drei"
 import { GLTFLoader } from "three-stdlib"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertCircle, Layers, Download, Save, Loader2 } from "lucide-react"
+import { AlertCircle, Layers, Download, Save, Loader2, X } from "lucide-react"
 import * as THREE from "three"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
-import { saveModelToDatabase } from "@/app/actions"
+import { saveModelToDatabase, saveModelToProject, getProjects } from "@/app/actions"
 import { toast } from "sonner"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Project } from "@/types/database"
 
 interface LightState {
   position: [number, number, number]
@@ -302,10 +304,14 @@ export function ModelViewer({
   url,
   inputImage,
   resolution,
+  currentProjectId,
+  onProjectSelect,
 }: {
   url: string
   inputImage?: string
   resolution?: number
+  currentProjectId?: string | null
+  onProjectSelect?: (projectId: string) => void
 }) {
   const { theme } = useTheme()
   const [state, setState] = useState({
@@ -314,6 +320,60 @@ export function ModelViewer({
     saveProgress: "",
     saveSuccess: false,
   })
+  const [projects, setProjects] = useState<Project[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(currentProjectId || null)
+  const [isMobile, setIsMobile] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  
+  // Check if viewing on mobile and set initial fullscreen state
+  useEffect(() => {
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      
+      // Automatically set fullscreen on mobile when a model is loaded
+      if (mobile && url) {
+        setIsFullscreen(true)
+      } else if (!mobile) {
+        setIsFullscreen(false)
+      }
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile)
+    }
+  }, [url])
+  
+  // Auto-enter fullscreen mode when URL changes on mobile
+  useEffect(() => {
+    if (isMobile && url) {
+      setIsFullscreen(true)
+    }
+  }, [url, isMobile])
+  
+  // Load projects on mount
+  useEffect(() => {
+    const fetchProjects = async () => {
+      try {
+        const projectsList = await getProjects();
+        setProjects(projectsList);
+      } catch (error) {
+        console.error("Error fetching projects:", error);
+      }
+    };
+    
+    fetchProjects();
+  }, []);
+
+  // Update selected project when prop changes
+  useEffect(() => {
+    if (currentProjectId) {
+      setSelectedProjectId(currentProjectId);
+    }
+  }, [currentProjectId]);
 
   const handleError = useCallback((error: string) => {
     setState((prev) => ({ ...prev, error }))
@@ -327,75 +387,159 @@ export function ModelViewer({
     canvas?.__r3f?.scene?.userData.toggleTextures?.()
   }
 
+  const handleSaveModel = async () => {
+    if (!url || !inputImage || !resolution) return;
+    
+    setState((prev) => ({ ...prev, saving: true, error: null }));
+    
+    try {
+      if (selectedProjectId) {
+        // Save to project
+        const result = await saveModelToProject(
+          selectedProjectId,
+          url,
+          inputImage, // Using input image as thumbnail for simplicity
+          inputImage,
+          resolution
+        );
+        
+        if (result) {
+          setState((prev) => ({ ...prev, saveSuccess: true }));
+          toast.success("Model saved to project successfully");
+          
+          // Notify parent component if needed
+          if (onProjectSelect) {
+            onProjectSelect(selectedProjectId);
+          }
+        } else {
+          setState((prev) => ({
+            ...prev,
+            error: "Failed to save model to project",
+          }));
+          toast.error("Failed to save model to project");
+        }
+      } else {
+        // Save to regular storage
+        await saveModelToDatabase(url, inputImage, resolution);
+        setState((prev) => ({ ...prev, saveSuccess: true }));
+        toast.success("Model saved successfully");
+      }
+    } catch (err) {
+      setState((prev) => ({
+        ...prev,
+        error: err instanceof Error ? err.message : "Save failed",
+      }));
+      toast.error("Failed to save model");
+    } finally {
+      setState((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
+  const exitFullscreen = () => {
+    setIsFullscreen(false);
+  };
+
+  // Conditional classes for the fullscreen mobile view
+  const containerClasses = isFullscreen 
+    ? "fixed inset-0 z-50 bg-background" 
+    : "h-full w-full";
+
   return (
-    <>
+    <div className={containerClasses}>
+      {isFullscreen && (
+        <div className="absolute top-0 left-0 right-0 z-10 p-4 flex justify-between items-center bg-background/80 backdrop-blur-sm">
+          <h2 className="text-lg font-medium">3D Model Viewer</h2>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={exitFullscreen}
+          >
+            <X className="h-5 w-5" />
+          </Button>
+        </div>
+      )}
+      
       <Canvas shadows camera={{ position: [0, 0, 5] }} style={{ background: bg }}>
         <color attach="background" args={[bg]} />
         <Suspense fallback={null}>
           <ModelContent url={url} onError={handleError} />
         </Suspense>
       </Canvas>
-      <div className="absolute bottom-3 right-3 flex gap-2 z-10">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 bg-background/50 backdrop-blur-sm"
-          onClick={handleToggleTextures}
-        >
-          <Layers className="h-3 w-3 mr-2" />
-          Toggle Textures
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 bg-background/50 backdrop-blur-sm"
-          onClick={() => {
-            const link = document.createElement("a")
-            link.href = url
-            link.download = "model.glb"
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-          }}
-        >
-          <Download className="h-3 w-3 mr-2" />
-          Download
-        </Button>
-        {inputImage && resolution && (
+      
+      {/* Controls positioned at the bottom */}
+      <div className={`${isFullscreen ? 'absolute bottom-6' : 'absolute bottom-3'} left-0 right-0 flex justify-center gap-2 z-10 px-4`}>
+        {/* Main controls */}
+        <div className="flex gap-2 overflow-x-auto pb-2 max-w-full">
           <Button
-            variant={state.saveSuccess ? "default" : "outline"}
+            variant="outline"
             size="sm"
-            className="h-8 bg-background/50 backdrop-blur-sm"
-            onClick={async () => {
-              setState((prev) => ({ ...prev, saving: true, error: null }))
-              try {
-                await saveModelToDatabase(url, inputImage, resolution)
-                setState((prev) => ({ ...prev, saveSuccess: true }))
-                toast.success("Model saved successfully")
-              } catch (err) {
-                setState((prev) => ({
-                  ...prev,
-                  error: err instanceof Error ? err.message : "Save failed",
-                }))
-                toast.error("Failed to save model")
-              } finally {
-                setState((prev) => ({ ...prev, saving: false }))
-              }
-            }}
-            disabled={state.saving}
+            className="h-8 bg-background/50 backdrop-blur-sm whitespace-nowrap"
+            onClick={handleToggleTextures}
           >
-            <Save className={`h-3 w-3 mr-2 ${state.saving ? "animate-spin" : ""}`} />
-            {state.saving ? "Saving..." : state.saveSuccess ? "Saved" : "Save"}
+            <Layers className="h-3 w-3 mr-2" />
+            Toggle Textures
           </Button>
-        )}
+          
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 bg-background/50 backdrop-blur-sm whitespace-nowrap"
+            onClick={() => {
+              const link = document.createElement("a")
+              link.href = url
+              link.download = "model.glb"
+              document.body.appendChild(link)
+              link.click()
+              document.body.removeChild(link)
+            }}
+          >
+            <Download className="h-3 w-3 mr-2" />
+            Download
+          </Button>
+          
+          {inputImage && resolution && (
+            <>
+              {projects.length > 0 && (
+                <Select
+                  value={selectedProjectId || ""}
+                  onValueChange={setSelectedProjectId}
+                >
+                  <SelectTrigger className="h-8 text-xs bg-background/50 backdrop-blur-sm w-32">
+                    <SelectValue placeholder="Select project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No project</SelectItem>
+                    {projects.map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              
+              <Button
+                variant={state.saveSuccess ? "default" : "outline"}
+                size="sm"
+                className="h-8 bg-background/50 backdrop-blur-sm whitespace-nowrap"
+                onClick={handleSaveModel}
+                disabled={state.saving}
+              >
+                <Save className={`h-3 w-3 mr-2 ${state.saving ? "animate-spin" : ""}`} />
+                {state.saving ? "Saving..." : state.saveSuccess ? "Saved" : "Save"}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
+      
       {state.error && (
         <Alert variant="destructive" className="absolute top-4 left-4 right-4">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{state.error}</AlertDescription>
         </Alert>
       )}
-    </>
+    </div>
   )
 }
 
