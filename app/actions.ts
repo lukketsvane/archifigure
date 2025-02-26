@@ -1,3 +1,4 @@
+// app/actions.ts
 "use server"
 
 import Replicate from "replicate"
@@ -17,7 +18,6 @@ export type SavedModel = {
   resolution: number
   model_hash: string
 }
-
 
 export type Prediction = {
   id: string
@@ -124,16 +124,103 @@ export const generateModel = async (data: {
   seed: number
   octree_resolution: number
   remove_background: boolean
+  project_id: string
 }) => {
   try {
+    // Start the prediction with Replicate
     const prediction = await replicate.deployments.predictions.create(
       "cygnus-holding",
       "hunyuan3d-2",
       { input: data }
     )
-    return { success: true, debug: { predictionId: prediction.id, status: prediction.status } }
-  } catch {
+    
+    // Auto-register the prediction for storage when complete
+    await registerPredictionForStorage(prediction.id, data.project_id)
+    
+    return { 
+      success: true, 
+      debug: { 
+        predictionId: prediction.id, 
+        status: prediction.status,
+        projectId: data.project_id
+      } 
+    }
+  } catch (error) {
+    console.error("Generate model error:", error)
     return { success: false, error: "Failed to start generation" }
+  }
+}
+
+// Register a prediction to be auto-stored when complete
+async function registerPredictionForStorage(predictionId: string, projectId: string) {
+  try {
+    // Create a record in the prediction_storage table to track this prediction
+    const { error } = await supabaseAdmin
+      .from('prediction_storage')
+      .insert({
+        prediction_id: predictionId,
+        project_id: projectId,
+        status: 'pending'
+      })
+      
+    if (error) throw error
+    return true
+  } catch (error) {
+    console.error('Error registering prediction for storage:', error)
+    return false
+  }
+}
+
+// Check and store completed predictions - this would be run by a cron job
+export async function checkAndStoreCompletedPredictions() {
+  try {
+    // Get pending storage predictions
+    const { data: pendingPredictions, error } = await supabaseAdmin
+      .from('prediction_storage')
+      .select('*')
+      .eq('status', 'pending')
+    
+    if (error) throw error
+    
+    // For each pending prediction, check if it's complete
+    for (const pending of pendingPredictions) {
+      try {
+        const prediction = await replicate.predictions.get(pending.prediction_id)
+        
+        // If the prediction is complete, store it
+        if (prediction.status === 'succeeded' && prediction.output?.mesh) {
+          // Save the model to the project
+          await saveModelToProject(
+            pending.project_id,
+            prediction.output.mesh,
+            prediction.input.image,
+            prediction.input.image,
+            prediction.input.octree_resolution || 256,
+            `Auto-saved model ${new Date().toLocaleDateString()}`
+          )
+          
+          // Update the prediction storage record
+          await supabaseAdmin
+            .from('prediction_storage')
+            .update({ status: 'completed' })
+            .eq('prediction_id', pending.prediction_id)
+        } 
+        // If the prediction failed, mark it as failed
+        else if (prediction.status === 'failed' || prediction.error) {
+          await supabaseAdmin
+            .from('prediction_storage')
+            .update({ status: 'failed' })
+            .eq('prediction_id', pending.prediction_id)
+        }
+      } catch (predictionError) {
+        console.error(`Error processing prediction ${pending.prediction_id}:`, predictionError)
+      }
+    }
+    
+    return true
+  } catch (error) {
+    console.error('Error checking completed predictions:', error)
+    return false
   }
 }
 
@@ -151,6 +238,146 @@ export const uploadImage = async (formData: FormData) => {
     return success ? { success: true, url: data.url } : { success: false, error: "Upload failed" }
   } catch {
     return { success: false, error: "Upload failed" }
+  }
+}
+
+// Create a new project
+export async function createProject(name: string): Promise<Project | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .insert({ name })
+      .select()
+      .single();
+      
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error creating project:', error);
+    return null;
+  }
+}
+
+// Get all projects
+export async function getProjects(): Promise<Project[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    return [];
+  }
+}
+
+// Get a specific project by ID
+export async function getProject(id: string): Promise<Project | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('projects')
+      .select('*')
+      .eq('id', id)
+      .single();
+      
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error fetching project:', error);
+    return null;
+  }
+}
+
+// Get models for a specific project
+export async function getProjectModels(projectId: string): Promise<ProjectModel[]> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('project_models')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error fetching project models:', error);
+    return [];
+  }
+}
+
+// Save a model to a project with optional name
+export async function saveModelToProject(
+  projectId: string,
+  modelUrl: string,
+  thumbnailUrl: string,
+  inputImage: string,
+  resolution: number,
+  name?: string
+): Promise<ProjectModel | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('project_models')
+      .insert({
+        project_id: projectId,
+        model_url: modelUrl,
+        thumbnail_url: thumbnailUrl,
+        input_image: inputImage,
+        resolution: resolution,
+        name: name || `Model ${new Date().toLocaleString()}`
+      })
+      .select()
+      .single();
+      
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error saving model to project:', error);
+    return null;
+  }
+}
+
+// Delete a project and all its models
+export async function deleteProject(projectId: string): Promise<boolean> {
+  try {
+    // First, delete all models in the project
+    const { error: modelsError } = await supabaseAdmin
+      .from('project_models')
+      .delete()
+      .eq('project_id', projectId);
+      
+    if (modelsError) throw modelsError;
+    
+    // Then delete the project
+    const { error: projectError } = await supabaseAdmin
+      .from('projects')
+      .delete()
+      .eq('id', projectId);
+      
+    if (projectError) throw projectError;
+    
+    return true;
+  } catch (error) {
+    console.error('Error deleting project:', error);
+    return false;
+  }
+}
+
+// Delete a specific model
+export async function deleteProjectModel(modelId: string): Promise<boolean> {
+  try {
+    const { error } = await supabaseAdmin
+      .from('project_models')
+      .delete()
+      .eq('id', modelId);
+      
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting model:', error);
+    return false;
   }
 }
 
@@ -247,139 +474,77 @@ export async function deleteSavedModel(id: string): Promise<void> {
   await saveModelsData({ models: updatedModels })
 }
 
-export async function createProject(name: string): Promise<Project | null> {
+// Move models to a different project
+export async function moveModelsToProject(
+  modelIds: string[],
+  targetProjectId: string
+): Promise<boolean> {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
-      .insert({ name })
-      .select()
-      .single();
+    // For each model ID, update its project_id in the database
+    for (const id of modelIds) {
+      const { error } = await supabaseAdmin
+        .from('project_models')
+        .update({ project_id: targetProjectId })
+        .eq('id', id);
       
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error creating project:', error);
-    return null;
-  }
-}
-
-// Get all projects
-export async function getProjects(): Promise<Project[]> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
-      
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('Error fetching projects:', error);
-    return [];
-  }
-}
-
-// Get a specific project by ID
-export async function getProject(id: string): Promise<Project | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('projects')
-      .select('*')
-      .eq('id', id)
-      .single();
-      
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error fetching project:', error);
-    return null;
-  }
-}
-
-// Get models for a specific project
-export async function getProjectModels(projectId: string): Promise<ProjectModel[]> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('project_models')
-      .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false });
-      
-    if (error) throw error;
-    return data || [];
-  } catch (error) {
-    console.error('Error fetching project models:', error);
-    return [];
-  }
-}
-
-// Save a model to a project
-export async function saveModelToProject(
-  projectId: string,
-  modelUrl: string,
-  thumbnailUrl: string,
-  inputImage: string,
-  resolution: number
-): Promise<ProjectModel | null> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from('project_models')
-      .insert({
-        project_id: projectId,
-        model_url: modelUrl,
-        thumbnail_url: thumbnailUrl,
-        input_image: inputImage,
-        resolution: resolution,
-      })
-      .select()
-      .single();
-      
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error saving model to project:', error);
-    return null;
-  }
-}
-
-// Delete a project and all its models
-export async function deleteProject(projectId: string): Promise<boolean> {
-  try {
-    // First, delete all models in the project
-    const { error: modelsError } = await supabaseAdmin
-      .from('project_models')
-      .delete()
-      .eq('project_id', projectId);
-      
-    if (modelsError) throw modelsError;
-    
-    // Then delete the project
-    const { error: projectError } = await supabaseAdmin
-      .from('projects')
-      .delete()
-      .eq('id', projectId);
-      
-    if (projectError) throw projectError;
+      if (error) throw error;
+    }
     
     return true;
   } catch (error) {
-    console.error('Error deleting project:', error);
+    console.error('Error moving models:', error);
     return false;
   }
 }
 
-// Delete a specific model
-export async function deleteProjectModel(modelId: string): Promise<boolean> {
+// Rename models (single or batch)
+export async function renameModels(
+  modelIds: string[],
+  newName: string
+): Promise<boolean> {
   try {
+    // If multiple models, add numeric suffix
+    if (modelIds.length > 1) {
+      for (let i = 0; i < modelIds.length; i++) {
+        const { error } = await supabaseAdmin
+          .from('project_models')
+          .update({ name: `${newName}-${i + 1}` })
+          .eq('id', modelIds[i]);
+        
+        if (error) throw error;
+      }
+    } else if (modelIds.length === 1) {
+      // Single model rename
+      const { error } = await supabaseAdmin
+        .from('project_models')
+        .update({ name: newName })
+        .eq('id', modelIds[0]);
+      
+      if (error) throw error;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error renaming models:', error);
+    return false;
+  }
+}
+
+// Bulk delete models by IDs
+export async function deleteModelsByIds(
+  modelIds: string[]
+): Promise<boolean> {
+  try {
+    // Delete multiple models
     const { error } = await supabaseAdmin
       .from('project_models')
       .delete()
-      .eq('id', modelId);
-      
+      .in('id', modelIds);
+    
     if (error) throw error;
     return true;
   } catch (error) {
-    console.error('Error deleting model:', error);
+    console.error('Error deleting models:', error);
     return false;
   }
 }

@@ -1,17 +1,22 @@
 // components/predictions-grid.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Circle, Save, AlertCircle, Trash2, Eye, EyeOff, FolderOpen, Plus } from "lucide-react";
+import { CheckCircle2, Circle, Save, AlertCircle, Trash2, Eye, EyeOff, FolderOpen, Plus, Check, Move, Pencil, Download, X } from "lucide-react";
 import Image from "next/image";
 import type { Prediction, SavedModel } from "@/app/actions";
 import { Project, ProjectModel } from "@/types/database";
-import { getSavedModels, getProjects, getProjectModels, deleteProject, deleteProjectModel } from "@/app/actions";
+import { getSavedModels, getProjects, getProjectModels, deleteProject, deleteProjectModel, moveModelsToProject, renameModels } from "@/app/actions";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 
 type PendingSubmission = {
   id: string;
@@ -64,7 +69,19 @@ export const PredictionsGrid = ({
     selectedProjectId: currentProjectId || null,
   });
 
-  // Update pending submissions when prop changes
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectionBox, setSelectionBox] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Map<string, DOMRect>>(new Map());
+  
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [targetProjectId, setTargetProjectId] = useState<string | null>(null);
+  const [newNameBase, setNewNameBase] = useState("");
+
   useEffect(() => {
     if (pendingSubmissions.length > 0) {
       setState(prev => ({
@@ -74,7 +91,6 @@ export const PredictionsGrid = ({
     }
   }, [pendingSubmissions]);
 
-  // Update current project ID when prop changes
   useEffect(() => {
     if (currentProjectId) {
       setState(prev => ({
@@ -86,6 +102,28 @@ export const PredictionsGrid = ({
   }, [currentProjectId]);
 
   useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setSelectionMode(true);
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setSelectionMode(false);
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedItems(new Set());
+  }, [state.activeTab]);
+
+  useEffect(() => {
     let mounted = true;
     let pollInterval: NodeJS.Timeout;
 
@@ -93,7 +131,6 @@ export const PredictionsGrid = ({
       try {
         if (!mounted) return;
 
-        // Fetch replicate models
         if (state.activeTab === "replicate") {
           const res = await fetch(`/api/predictions?t=${Date.now()}`, {
             cache: "no-store",
@@ -127,12 +164,10 @@ export const PredictionsGrid = ({
             }
           });
 
-          // Apply filtering based on showInProgress state
           const filteredPredictions = showAll || state.showInProgress
             ? validPredictions
             : validPredictions.filter((p) => p.status === "succeeded");
 
-          // Remove pending submissions that now appear in the validPredictions
           const apiIds = validPredictions.map(p => p.id);
           const updatedPendingSubmissions = state.pendingSubmissions.filter(
             ps => !ps.id.includes("pending-") || !apiIds.includes(ps.id)
@@ -149,7 +184,6 @@ export const PredictionsGrid = ({
           }
         }
 
-        // Fetch saved models
         try {
           const models = await getSavedModels();
           if (mounted) {
@@ -170,12 +204,10 @@ export const PredictionsGrid = ({
           }
         }
 
-        // Fetch projects
         if (state.activeTab === "projects") {
           try {
             const projects = await getProjects();
             
-            // If there's a selected project or if we just fetched projects
             if (state.selectedProjectId || projects.length > 0) {
               const projectId = state.selectedProjectId || projects[0]?.id;
               
@@ -255,10 +287,319 @@ export const PredictionsGrid = ({
     };
   }, [state.activeTab, state.consecutiveErrors, state.showInProgress, showAll, state.pendingSubmissions, state.selectedProjectId]);
 
-  // Count of in-progress items
   const inProgressCount = state.predictions.filter(p => 
     ["starting", "processing"].includes(p.status)
   ).length + state.pendingSubmissions.length;
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!selectionMode || !gridRef.current) return;
+    
+    const rect = gridRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setSelectionBox({ startX: x, startY: y, endX: x, endY: y });
+    setIsDragging(true);
+  }, [selectionMode]);
+  
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDragging || !selectionBox || !gridRef.current) return;
+    
+    const rect = gridRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    setSelectionBox(prev => ({
+      ...prev!,
+      endX: x,
+      endY: y
+    }));
+  }, [isDragging, selectionBox]);
+  
+  const handleMouseUp = useCallback(() => {
+    if (!isDragging || !selectionBox || !gridRef.current) return;
+    
+    const left = Math.min(selectionBox.startX, selectionBox.endX);
+    const right = Math.max(selectionBox.startX, selectionBox.endX);
+    const top = Math.min(selectionBox.startY, selectionBox.endY);
+    const bottom = Math.max(selectionBox.startY, selectionBox.endY);
+    
+    const newSelectedItems = new Set(selectedItems);
+    
+    itemRefs.current.forEach((itemRect, id) => {
+      const intersects = !(
+        itemRect.right < left ||
+        itemRect.left > right ||
+        itemRect.bottom < top ||
+        itemRect.top > bottom
+      );
+      
+      if (intersects) {
+        newSelectedItems.add(id);
+      }
+    });
+    
+    setSelectedItems(newSelectedItems);
+    setIsDragging(false);
+    setSelectionBox(null);
+  }, [isDragging, selectionBox, selectedItems]);
+
+  const registerItemRef = useCallback((id: string, element: HTMLElement | null) => {
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      itemRefs.current.set(id, rect);
+    }
+  }, []);
+
+  const toggleItemSelection = useCallback((id: string, event: React.MouseEvent) => {
+    if (!selectionMode) return;
+    
+    event.stopPropagation();
+    event.preventDefault();
+    
+    setSelectedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  }, [selectionMode]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedItems(new Set());
+  }, []);
+
+  const handleDownloadZip = async () => {
+    if (selectedItems.size === 0) return;
+    
+    try {
+      toast.loading("Preparing ZIP file...");
+      
+      let modelUrls: string[] = [];
+      
+      if (state.activeTab === "replicate") {
+        modelUrls = state.predictions
+          .filter(p => selectedItems.has(p.id) && p.status === "succeeded" && p.output?.mesh)
+          .map(p => p.output!.mesh!);
+      } else if (state.activeTab === "stored") {
+        modelUrls = state.savedModels
+          .filter(m => selectedItems.has(m.id))
+          .map(m => m.url);
+      } else if (state.activeTab === "projects" && state.selectedProjectId) {
+        const selectedProjectModels = state.projectModels[state.selectedProjectId] || [];
+        modelUrls = selectedProjectModels
+          .filter(m => selectedItems.has(m.id))
+          .map(m => m.model_url);
+      }
+      
+      if (modelUrls.length === 0) {
+        toast.error("No valid models selected for download");
+        return;
+      }
+      
+      const zip = new JSZip();
+      
+      for (let i = 0; i < modelUrls.length; i++) {
+        try {
+          const url = modelUrls[i];
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`Failed to fetch ${url}`);
+          
+          const blob = await response.blob();
+          const filename = `model-${i + 1}.glb`;
+          zip.file(filename, blob);
+        } catch (error) {
+          console.error(`Error adding file to ZIP:`, error);
+        }
+      }
+      
+      const zipBlob = await zip.generateAsync({ type: "blob" });
+      saveAs(zipBlob, "archifigure-models.zip");
+      
+      toast.success(`${modelUrls.length} models downloaded as ZIP`);
+    } catch (error) {
+      console.error("ZIP download error:", error);
+      toast.error("Failed to create ZIP file");
+    }
+  };
+
+  const handleMoveModels = async () => {
+    if (selectedItems.size === 0 || !targetProjectId) return;
+    setMoveDialogOpen(false);
+    
+    try {
+      toast.loading(`Moving ${selectedItems.size} models...`);
+      
+      if (state.activeTab !== "projects" || !state.selectedProjectId) {
+        toast.error("Only project models can be moved");
+        return;
+      }
+      
+      const selectedProjectModels = state.projectModels[state.selectedProjectId] || [];
+      const modelIds = selectedProjectModels
+        .filter(m => selectedItems.has(m.id))
+        .map(m => m.id);
+      
+      if (modelIds.length === 0) {
+        toast.error("No valid models selected for moving");
+        return;
+      }
+      
+      const success = await moveModelsToProject(modelIds, targetProjectId);
+      
+      if (success) {
+        toast.success(`${modelIds.length} models moved successfully`);
+        clearSelection();
+        
+        const projectModels = await getProjectModels(state.selectedProjectId);
+        setState(prev => ({
+          ...prev,
+          projectModels: {
+            ...prev.projectModels,
+            [state.selectedProjectId]: projectModels
+          }
+        }));
+      } else {
+        toast.error("Failed to move models");
+      }
+    } catch (error) {
+      console.error("Move error:", error);
+      toast.error("Failed to move models");
+    }
+  };
+
+  const handleRenameModels = async () => {
+    if (selectedItems.size === 0 || !newNameBase.trim()) return;
+    setRenameDialogOpen(false);
+    
+    try {
+      toast.loading(`Renaming ${selectedItems.size} models...`);
+      
+      if (state.activeTab !== "projects" || !state.selectedProjectId) {
+        toast.error("Only project models can be renamed");
+        return;
+      }
+      
+      const selectedProjectModels = state.projectModels[state.selectedProjectId] || [];
+      const modelIds = selectedProjectModels
+        .filter(m => selectedItems.has(m.id))
+        .map(m => m.id);
+      
+      if (modelIds.length === 0) {
+        toast.error("No valid models selected for renaming");
+        return;
+      }
+      
+      const success = await renameModels(modelIds, newNameBase);
+      
+      if (success) {
+        toast.success(`${modelIds.length} models renamed successfully`);
+        clearSelection();
+        
+        const projectModels = await getProjectModels(state.selectedProjectId);
+        setState(prev => ({
+          ...prev,
+          projectModels: {
+            ...prev.projectModels,
+            [state.selectedProjectId]: projectModels
+          }
+        }));
+      } else {
+        toast.error("Failed to rename models");
+      }
+    } catch (error) {
+      console.error("Rename error:", error);
+      toast.error("Failed to rename models");
+    }
+  };
+
+  const handleDeleteModels = async () => {
+    if (selectedItems.size === 0) return;
+    setDeleteDialogOpen(false);
+    
+    try {
+      toast.loading(`Deleting ${selectedItems.size} models...`);
+      
+      if (state.activeTab === "stored") {
+        const modelIds = state.savedModels
+          .filter(m => selectedItems.has(m.id))
+          .map(m => m.id);
+        
+        if (modelIds.length === 0) {
+          toast.error("No valid models selected for deletion");
+          return;
+        }
+        
+        let success = true;
+        for (const id of modelIds) {
+          try {
+            await fetch("/api/delete-model", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id }),
+            });
+          } catch (error) {
+            console.error(`Error deleting model ${id}:`, error);
+            success = false;
+          }
+        }
+        
+        if (success) {
+          toast.success(`${modelIds.length} models deleted successfully`);
+          clearSelection();
+          
+          setState(prev => ({
+            ...prev,
+            savedModels: prev.savedModels.filter(m => !selectedItems.has(m.id))
+          }));
+        } else {
+          toast.error("Failed to delete some models");
+        }
+      } else if (state.activeTab === "projects" && state.selectedProjectId) {
+        const selectedProjectModels = state.projectModels[state.selectedProjectId] || [];
+        const modelIds = selectedProjectModels
+          .filter(m => selectedItems.has(m.id))
+          .map(m => m.id);
+        
+        if (modelIds.length === 0) {
+          toast.error("No valid models selected for deletion");
+          return;
+        }
+        
+        let success = true;
+        for (const id of modelIds) {
+          try {
+            await deleteProjectModel(id);
+          } catch (error) {
+            console.error(`Error deleting model ${id}:`, error);
+            success = false;
+          }
+        }
+        
+        if (success) {
+          toast.success(`${modelIds.length} models deleted successfully`);
+          clearSelection();
+          
+          const projectModels = await getProjectModels(state.selectedProjectId);
+          setState(prev => ({
+            ...prev,
+            projectModels: {
+              ...prev.projectModels,
+              [state.selectedProjectId]: projectModels
+            }
+          }));
+        } else {
+          toast.error("Failed to delete some models");
+        }
+      }
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast.error("Failed to delete models");
+    }
+  };
 
   const loadProjectModels = async (projectId: string) => {
     try {
@@ -291,7 +632,7 @@ export const PredictionsGrid = ({
     return (
       <Card
         key={submission.id}
-        className="w-full h-full aspect-square"
+        className="w-full h-full aspect-square opacity-75"
       >
         <div className="relative aspect-square bg-muted/60">
           {submission.input.image ? (
@@ -329,11 +670,16 @@ export const PredictionsGrid = ({
     return (
       <Card
         key={prediction.id}
+        ref={element => registerItemRef(prediction.id, element)}
         className={`w-full h-full aspect-square ${
+          selectedItems.has(prediction.id) ? "ring-2 ring-primary" : ""
+        } ${
           isClickable ? "cursor-pointer transition-transform hover:scale-105 active:scale-95" : "opacity-75"
         }`}
-        onClick={() => {
-          if (isClickable && prediction.output?.mesh) {
+        onClick={(e) => {
+          if (selectionMode) {
+            toggleItemSelection(prediction.id, e);
+          } else if (isClickable && prediction.output?.mesh) {
             onSelectModel(prediction.output.mesh, prediction.input.image, prediction.input.octree_resolution);
           }
         }}
@@ -346,18 +692,25 @@ export const PredictionsGrid = ({
             className="object-cover rounded-t-lg"
             unoptimized
           />
-          <Badge
-            variant={hasError ? "destructive" : prediction.status === "succeeded" ? "default" : "secondary"}
-            className="absolute top-2 right-2 h-5 w-5 p-0 flex items-center justify-center"
-          >
-            {hasError ? (
-              <AlertCircle className="w-3 h-3" />
-            ) : prediction.status === "succeeded" ? (
-              <CheckCircle2 className="w-3 h-3" />
-            ) : (
-              <Circle className={`w-3 h-3 ${isProcessing ? "animate-pulse" : ""}`} />
+          <div className="absolute top-2 right-2 flex gap-1">
+            {selectedItems.has(prediction.id) && (
+              <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center bg-primary">
+                <Check className="w-3 h-3" />
+              </Badge>
             )}
-          </Badge>
+            <Badge
+              variant={hasError ? "destructive" : prediction.status === "succeeded" ? "default" : "secondary"}
+              className="h-5 w-5 p-0 flex items-center justify-center"
+            >
+              {hasError ? (
+                <AlertCircle className="w-3 h-3" />
+              ) : prediction.status === "succeeded" ? (
+                <CheckCircle2 className="w-3 h-3" />
+              ) : (
+                <Circle className={`w-3 h-3 ${isProcessing ? "animate-pulse" : ""}`} />
+              )}
+            </Badge>
+          </div>
         </div>
         <div className="p-2 text-xs text-muted-foreground flex items-center justify-between">
           <span>{prediction.input.octree_resolution || "256"}</span>
@@ -378,8 +731,16 @@ export const PredictionsGrid = ({
   const renderSavedModelCard = (model: SavedModel) => (
     <Card
       key={model.id}
-      className="w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
-      onClick={() => onSelectModel(model.url, model.input_image, model.resolution)}
+      ref={element => registerItemRef(model.id, element)}
+      className={`w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative
+        ${selectedItems.has(model.id) ? "ring-2 ring-primary" : ""}`}
+      onClick={(e) => {
+        if (selectionMode) {
+          toggleItemSelection(model.id, e);
+        } else {
+          onSelectModel(model.url, model.input_image, model.resolution);
+        }
+      }}
     >
       <div className="relative aspect-square">
         <Image
@@ -390,20 +751,26 @@ export const PredictionsGrid = ({
           unoptimized
         />
         <div className="absolute top-2 right-2 flex gap-1">
+          {selectedItems.has(model.id) && (
+            <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center bg-primary">
+              <Check className="w-3 h-3" />
+            </Badge>
+          )}
           <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center">
             <Save className="w-3 h-3" />
           </Badge>
           <Badge
             variant="destructive"
             className="h-5 w-5 p-0 flex items-center justify-center cursor-pointer"
-            onClick={async (e) => {
-              e.stopPropagation(); // Prevent model selection
-              try {
-                const res = await fetch("/api/delete-model", {
-                  method: "DELETE",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ id: model.id }),
-                });
+            onClick={(e) => {
+              e.stopPropagation();
+              if (selectionMode) return;
+              
+              fetch("/api/delete-model", {
+                method: "DELETE",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id: model.id }),
+              }).then(res => {
                 if (res.ok) {
                   setState((prev) => ({
                     ...prev,
@@ -413,9 +780,9 @@ export const PredictionsGrid = ({
                 } else {
                   toast.error("Failed to delete model");
                 }
-              } catch (err) {
+              }).catch(err => {
                 toast.error("Error deleting model");
-              }
+              });
             }}
           >
             <Trash2 className="w-3 h-3" />
@@ -432,8 +799,16 @@ export const PredictionsGrid = ({
   const renderProjectModelCard = (model: ProjectModel) => (
     <Card
       key={model.id}
-      className="w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative"
-      onClick={() => onSelectModel(model.model_url, model.input_image, model.resolution)}
+      ref={element => registerItemRef(model.id, element)}
+      className={`w-full h-full aspect-square cursor-pointer transition-transform hover:scale-105 active:scale-95 relative
+        ${selectedItems.has(model.id) ? "ring-2 ring-primary" : ""}`}
+      onClick={(e) => {
+        if (selectionMode) {
+          toggleItemSelection(model.id, e);
+        } else {
+          onSelectModel(model.model_url, model.input_image, model.resolution);
+        }
+      }}
     >
       <div className="relative aspect-square">
         <Image
@@ -444,6 +819,11 @@ export const PredictionsGrid = ({
           unoptimized
         />
         <div className="absolute top-2 right-2 flex gap-1">
+          {selectedItems.has(model.id) && (
+            <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center bg-primary">
+              <Check className="w-3 h-3" />
+            </Badge>
+          )}
           <Badge variant="default" className="h-5 w-5 p-0 flex items-center justify-center">
             <FolderOpen className="w-3 h-3" />
           </Badge>
@@ -451,7 +831,9 @@ export const PredictionsGrid = ({
             variant="destructive"
             className="h-5 w-5 p-0 flex items-center justify-center cursor-pointer"
             onClick={async (e) => {
-              e.stopPropagation(); // Prevent model selection
+              e.stopPropagation();
+              if (selectionMode) return;
+              
               try {
                 const success = await deleteProjectModel(model.id);
                 if (success) {
@@ -480,7 +862,7 @@ export const PredictionsGrid = ({
       </div>
       <div className="p-2 text-xs text-muted-foreground flex items-center justify-between">
         <span>{model.resolution}</span>
-        <span>Project</span>
+        <span>{model.name || "Project"}</span>
       </div>
     </Card>
   );
@@ -500,7 +882,7 @@ export const PredictionsGrid = ({
             variant="destructive"
             className="h-5 w-5 p-0 flex items-center justify-center cursor-pointer"
             onClick={async (e) => {
-              e.stopPropagation(); // Prevent selection
+              e.stopPropagation();
               
               if (confirm(`Are you sure you want to delete the project "${project.name}" and all its models?`)) {
                 try {
@@ -512,11 +894,9 @@ export const PredictionsGrid = ({
                         projects: prev.projects.filter(p => p.id !== project.id),
                       };
                       
-                      // Clear the project models cache
                       const { [project.id]: _, ...remainingProjectModels } = prev.projectModels;
                       newState.projectModels = remainingProjectModels;
                       
-                      // If this was the selected project, select another one or clear selection
                       if (prev.selectedProjectId === project.id) {
                         newState.selectedProjectId = prev.projects.length > 1 
                           ? prev.projects.find(p => p.id !== project.id)?.id || null
@@ -580,8 +960,27 @@ export const PredictionsGrid = ({
             </Button>
           </div>
           
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
+          <div 
+            ref={gridRef}
+            className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 relative"
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+          >
             {state.projects.map(renderProjectCard)}
+            
+            {isDragging && selectionBox && (
+              <div
+                className="absolute bg-primary/20 border border-primary/50 pointer-events-none z-10"
+                style={{
+                  left: Math.min(selectionBox.startX, selectionBox.endX),
+                  top: Math.min(selectionBox.startY, selectionBox.endY),
+                  width: Math.abs(selectionBox.endX - selectionBox.startX),
+                  height: Math.abs(selectionBox.endY - selectionBox.startY),
+                }}
+              />
+            )}
           </div>
           
           {state.selectedProjectId && (
@@ -595,8 +994,27 @@ export const PredictionsGrid = ({
                   Loading models...
                 </div>
               ) : state.projectModels[state.selectedProjectId]?.length > 0 ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
+                <div 
+                  ref={gridRef}
+                  className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 relative"
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onMouseLeave={handleMouseUp}
+                >
                   {state.projectModels[state.selectedProjectId].map(renderProjectModelCard)}
+                  
+                  {isDragging && selectionBox && (
+                    <div
+                      className="absolute bg-primary/20 border border-primary/50 pointer-events-none z-10"
+                      style={{
+                        left: Math.min(selectionBox.startX, selectionBox.endX),
+                        top: Math.min(selectionBox.startY, selectionBox.endY),
+                        width: Math.abs(selectionBox.endX - selectionBox.startX),
+                        height: Math.abs(selectionBox.endY - selectionBox.startY),
+                      }}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-48 text-sm text-muted-foreground">
@@ -640,11 +1058,16 @@ export const PredictionsGrid = ({
     }
 
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4">
-        {/* Always show pending submissions first for replicate tab */}
+      <div 
+        ref={gridRef}
+        className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 relative"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
         {contentType === "replicate" && state.pendingSubmissions.map(renderPendingSubmissionCard)}
         
-        {/* Then show regular items */}
         {items.map(item => {
           if (contentType === "stored") {
             return renderSavedModelCard(item as SavedModel);
@@ -652,64 +1075,195 @@ export const PredictionsGrid = ({
             return renderPredictionCard(item as Prediction);
           }
         })}
+        
+        {isDragging && selectionBox && (
+          <div
+            className="absolute bg-primary/20 border border-primary/50 pointer-events-none z-10"
+            style={{
+              left: Math.min(selectionBox.startX, selectionBox.endX),
+              top: Math.min(selectionBox.startY, selectionBox.endY),
+              width: Math.abs(selectionBox.endX - selectionBox.startX),
+              height: Math.abs(selectionBox.endY - selectionBox.startY),
+            }}
+          />
+        )}
       </div>
     );
   };
 
   return (
-    <Tabs
-      defaultValue={state.activeTab}
-      className="w-full"
-      value={state.activeTab}
-      onValueChange={(value) =>
-        setState((prev) => ({
-          ...prev,
-          activeTab: value as "replicate" | "stored" | "projects",
-          selectedProjectId: value === "projects" ? prev.selectedProjectId || (prev.projects[0]?.id || null) : null
-        }))
-      }
-    >
-      <div className="border-b bg-muted/40 px-4">
-        <div className="flex items-center justify-between">
-          <TabsList className="h-9">
-            <TabsTrigger value="replicate" className="text-xs">
-              Replicate ({state.predictions.length + state.pendingSubmissions.length})
-            </TabsTrigger>
-            <TabsTrigger value="stored" className="text-xs">
-              Stored ({state.savedModels.length})
-            </TabsTrigger>
-            <TabsTrigger value="projects" className="text-xs">
-              Projects ({state.projects.length})
-            </TabsTrigger>
-          </TabsList>
+    <>
+      <Tabs
+        defaultValue={state.activeTab}
+        className="w-full"
+        value={state.activeTab}
+        onValueChange={(value) =>
+          setState((prev) => ({
+            ...prev,
+            activeTab: value as "replicate" | "stored" | "projects",
+            selectedProjectId: value === "projects" ? prev.selectedProjectId || (prev.projects[0]?.id || null) : null
+          }))
+        }
+      >
+        <div className="border-b bg-muted/40 px-4">
+          <div className="flex items-center justify-between">
+            <TabsList className="h-9">
+              <TabsTrigger value="replicate" className="text-xs">
+                Recent ({state.predictions.length + state.pendingSubmissions.length})
+              </TabsTrigger>
+              <TabsTrigger value="stored" className="text-xs">
+                Stored ({state.savedModels.length})
+              </TabsTrigger>
+              <TabsTrigger value="projects" className="text-xs">
+                Projects ({state.projects.length})
+              </TabsTrigger>
+            </TabsList>
+            
+            {state.activeTab === "replicate" && inProgressCount > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={() =>
+                  setState((prev) => ({
+                    ...prev,
+                    showInProgress: !prev.showInProgress,
+                  }))
+                }
+                title={state.showInProgress ? "Hide in-progress models" : "Show in-progress models"}
+              >
+                {state.showInProgress ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
+        </div>
+        <TabsContent value="replicate" className="mt-0">
+          {renderContent("replicate")}
+        </TabsContent>
+        <TabsContent value="stored" className="mt-0">
+          {renderContent("stored")}
+        </TabsContent>
+        <TabsContent value="projects" className="mt-0">
+          {renderContent("projects")}
+        </TabsContent>
+      </Tabs>
+      
+      {selectedItems.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 
+                      bg-background/95 backdrop-blur-sm border rounded-lg shadow-lg 
+                      px-4 py-2 flex items-center space-x-2">
+          <span className="text-sm font-medium">{selectedItems.size} selected</span>
           
-          {state.activeTab === "replicate" && inProgressCount > 0 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() =>
-                setState((prev) => ({
-                  ...prev,
-                  showInProgress: !prev.showInProgress,
-                }))
-              }
-              title={state.showInProgress ? "Hide in-progress models" : "Show in-progress models"}
-            >
-              {state.showInProgress ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+          <div className="h-4 border-r mx-2"></div>
+          
+          <Button variant="ghost" size="sm" onClick={handleDownloadZip} title="Download as ZIP">
+            <Download className="h-4 w-4" />
+          </Button>
+          
+          {state.activeTab === "projects" && (
+            <Button variant="ghost" size="sm" onClick={() => setMoveDialogOpen(true)} title="Move to project">
+              <Move className="h-4 w-4" />
             </Button>
           )}
+          
+          {state.activeTab === "projects" && (
+            <Button variant="ghost" size="sm" onClick={() => setRenameDialogOpen(true)} title="Rename">
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          
+          <Button variant="ghost" size="sm" onClick={() => setDeleteDialogOpen(true)} title="Delete">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          
+          <div className="h-4 border-r mx-2"></div>
+          
+          <Button variant="ghost" size="sm" onClick={clearSelection} title="Clear selection">
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-      </div>
-      <TabsContent value="replicate" className="mt-0">
-        {renderContent("replicate")}
-      </TabsContent>
-      <TabsContent value="stored" className="mt-0">
-        {renderContent("stored")}
-      </TabsContent>
-      <TabsContent value="projects" className="mt-0">
-        {renderContent("projects")}
-      </TabsContent>
-    </Tabs>
+      )}
+      
+      <Dialog open={moveDialogOpen} onOpenChange={setMoveDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Move {selectedItems.size} models to project</DialogTitle>
+            <DialogDescription>
+              Select the project where you want to move the selected models.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Select 
+            value={targetProjectId || undefined} 
+            onValueChange={(value) => setTargetProjectId(value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select project" />
+            </SelectTrigger>
+            <SelectContent>
+              {state.projects
+                .filter(project => project.id !== state.selectedProjectId)
+                .map(project => (
+                  <SelectItem key={project.id} value={project.id}>
+                    {project.name}
+                  </SelectItem>
+                ))
+              }
+            </SelectContent>
+          </Select>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMoveDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleMoveModels} disabled={!targetProjectId}>
+              Move
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename {selectedItems.size > 1 ? `${selectedItems.size} models` : "model"}</DialogTitle>
+            <DialogDescription>
+              {selectedItems.size > 1 
+                ? "Enter a new base name. The models will be named with a number suffix."
+                : "Enter a new name for the selected model."}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Input 
+            value={newNameBase} 
+            onChange={(e) => setNewNameBase(e.target.value)} 
+            placeholder="New name" 
+          />
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleRenameModels} disabled={!newNameBase.trim()}>
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedItems.size} models?</DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. The selected models will be permanently deleted.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteModels}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };

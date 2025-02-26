@@ -124,8 +124,6 @@ export default function ModelGenerator() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState(null);
   const [projects, setProjects] = useState([]);
-  const [cooldown, setCooldown] = useState(0);
-  const [timeoutId, setTimeoutId] = useState(null);
   
   const [formData, setFormData] = useState({
     steps: 50,
@@ -141,25 +139,13 @@ export default function ModelGenerator() {
       try {
         const projectsList = await getProjects();
         setProjects(projectsList);
-        
-        // If there's at least one project, select the first one
-        if (projectsList.length > 0 && !currentProjectId) {
-          setCurrentProjectId(projectsList[0].id);
-        }
       } catch (error) {
         console.error("Failed to load projects:", error);
       }
     };
     
     loadProjects();
-  }, [currentProjectId]);
-
-  // Reset cooldown timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
-  }, [timeoutId]);
+  }, []);
 
   // Process predictions concurrently
   async function processPredictionsConcurrently(urls, concurrency) {
@@ -219,7 +205,7 @@ export default function ModelGenerator() {
       return;
     }
     
-    if (imageUrls.length === 0 || cooldown > 0) return;
+    if (imageUrls.length === 0) return;
     
     setLoading(true);
     setError("");
@@ -244,10 +230,6 @@ export default function ModelGenerator() {
         setTimeout(() => setSuccess(false), 5000);
       }
       
-      setCooldown(120);
-      if (timeoutId) clearTimeout(timeoutId);
-      const id = setTimeout(() => setCooldown(0), 120000);
-      setTimeoutId(id);
       setImageUrls([]);
     } catch (err) {
       setError("Generation failed");
@@ -255,12 +237,6 @@ export default function ModelGenerator() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const formatCooldown = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
   const removeImage = (url) => {
@@ -271,7 +247,7 @@ export default function ModelGenerator() {
     setImageUrls(urls);
     
     // Auto-submit for 3D generation if enabled
-    if (urls.length > 0 && !cooldown && autoGenerateMeshes && currentProjectId) {
+    if (urls.length > 0 && autoGenerateMeshes && currentProjectId) {
       handleSubmit();
     }
   };
@@ -527,11 +503,11 @@ export default function ModelGenerator() {
                       type="submit"
                       className="w-full h-10 text-sm relative overflow-hidden"
                       style={{ 
-                        background: loading || cooldown > 0 || !currentProjectId 
+                        background: loading || !currentProjectId 
                           ? "#666" 
                           : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
                       }}
-                      disabled={loading || imageUrls.length === 0 || cooldown > 0 || !currentProjectId}
+                      disabled={loading || imageUrls.length === 0 || !currentProjectId}
                     >
                       <span className="mr-auto">
                         {loading ? (
@@ -539,14 +515,6 @@ export default function ModelGenerator() {
                             <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
                             Generating...
                           </span>
-                        ) : cooldown > 0 ? (
-                          <>
-                            Wait {formatCooldown(cooldown)}
-                            <div
-                              className="absolute bottom-0 left-0 h-1 bg-white/30"
-                              style={{ width: `${(cooldown / 120) * 100}%`, transition: "width 1s linear" }}
-                            />
-                          </>
                         ) : !currentProjectId ? (
                           "Create a Project First"
                         ) : (
@@ -606,16 +574,13 @@ export default function ModelGenerator() {
               <Card className="w-full h-full relative overflow-hidden border">
                 {modelUrl ? (
                   <div className="absolute inset-0">
-                    {/* For mobile, we apply the aspect-square class to ensure 1:1 ratio */}
-                    <div className="w-full h-full md:h-full aspect-square md:aspect-auto">
-                      <ModelViewer
-                        url={modelUrl}
-                        inputImage={imageUrls[0]}
-                        resolution={formData.octree_resolution}
-                        currentProjectId={currentProjectId}
-                        onProjectSelect={setCurrentProjectId}
-                      />
-                    </div>
+                    <ModelViewer
+                      url={modelUrl}
+                      inputImage={imageUrls[0]}
+                      resolution={formData.octree_resolution}
+                      currentProjectId={currentProjectId}
+                      onProjectSelect={setCurrentProjectId}
+                    />
                   </div>
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">

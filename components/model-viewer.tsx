@@ -6,14 +6,15 @@ import { Canvas, useThree } from "@react-three/fiber"
 import { OrbitControls, Html } from "@react-three/drei"
 import { GLTFLoader } from "three-stdlib"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { AlertCircle, Layers, Download, Save, Loader2, Expand, X } from "lucide-react"
+import { AlertCircle, Layers, Download, Save, Loader2, Expand, X, FolderPlus } from "lucide-react"
 import * as THREE from "three"
 import { useTheme } from "@/components/theme-provider"
 import { Button } from "@/components/ui/button"
-import { saveModelToDatabase, saveModelToProject, getProjects } from "@/app/actions"
+import { saveModelToDatabase, saveModelToProject, getProjects, checkModelExists, createProject } from "@/app/actions"
 import { toast } from "sonner"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Project } from "@/types/database"
+import { ProjectDialog } from "@/components/project-dialog"
 
 interface LightState {
   position: [number, number, number]
@@ -110,8 +111,8 @@ function ModelContent({
   const materials = useRef(new Map<THREE.Mesh, THREE.Material | THREE.Material[]>())
   const matteMaterial = useRef(
     new THREE.MeshStandardMaterial({
-      color: 0xffffff, // more white base
-      roughness: 0.8,  // less shiny
+      color: 0xffffff, 
+      roughness: 0.8,  
       metalness: 0.0,
     })
   )
@@ -318,13 +319,13 @@ export function ModelViewer({
   const [state, setState] = useState({
     error: null as string | null,
     saving: false,
-    saveProgress: "",
     saveSuccess: false,
   })
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(currentProjectId || null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   
   // Check if viewing on mobile
   useEffect(() => {
@@ -354,13 +355,6 @@ export function ModelViewer({
     fetchProjects();
   }, []);
 
-  // Update selected project when prop changes
-  useEffect(() => {
-    if (currentProjectId) {
-      setSelectedProjectId(currentProjectId);
-    }
-  }, [currentProjectId]);
-
   const handleError = useCallback((error: string) => {
     setState((prev) => ({ ...prev, error }))
     toast.error(error)
@@ -373,12 +367,41 @@ export function ModelViewer({
     canvas?.__r3f?.scene?.userData.toggleTextures?.()
   }
 
+  const handleProjectCreated = async (projectId: string, projectName: string) => {
+    setSelectedProjectId(projectId)
+    setProjects(prev => [{ 
+      id: projectId, 
+      name: projectName, 
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }, ...prev])
+    toast.success(`Project "${projectName}" created`)
+    
+    // Update the parent component if callback provided
+    if (onProjectSelect) {
+      onProjectSelect(projectId)
+    }
+  }
+
   const handleSaveModel = async () => {
     if (!url || !inputImage || !resolution) return;
     
     setState((prev) => ({ ...prev, saving: true, error: null }));
     
     try {
+      // Check if model already exists in database or project
+      const existsResult = await checkModelExists(url, selectedProjectId || null);
+      
+      if (existsResult.exists) {
+        toast.info("This model is already saved");
+        setState((prev) => ({ 
+          ...prev, 
+          saving: false,
+          saveSuccess: true 
+        }));
+        return;
+      }
+      
       if (selectedProjectId) {
         // Save to project
         const result = await saveModelToProject(
@@ -386,7 +409,8 @@ export function ModelViewer({
           url,
           inputImage, // Using input image as thumbnail
           inputImage,
-          resolution
+          resolution,
+          `Model ${new Date().toLocaleString()}`
         );
         
         if (result) {
@@ -394,7 +418,7 @@ export function ModelViewer({
           toast.success("Model saved to project successfully");
           
           // Notify parent component if needed
-          if (onProjectSelect) {
+          if (onProjectSelect && selectedProjectId !== currentProjectId) {
             onProjectSelect(selectedProjectId);
           }
         } else {
@@ -445,12 +469,20 @@ export function ModelViewer({
         </div>
       )}
       
-      <Canvas shadows camera={{ position: [0, 0, 5] }} style={{ background: bg }}>
-        <color attach="background" args={[bg]} />
-        <Suspense fallback={null}>
-          <ModelContent url={url} onError={handleError} />
-        </Suspense>
-      </Canvas>
+      <ProjectDialog
+        open={projectDialogOpen}
+        onOpenChange={setProjectDialogOpen}
+        onProjectCreated={handleProjectCreated}
+      />
+      
+      <div className={`${isMobile ? 'aspect-square w-full' : 'h-full w-full'}`}>
+        <Canvas shadows camera={{ position: [0, 0, 5] }} style={{ background: bg }}>
+          <color attach="background" args={[bg]} />
+          <Suspense fallback={null}>
+            <ModelContent url={url} onError={handleError} />
+          </Suspense>
+        </Canvas>
+      </div>
       
       {/* Fullscreen button for mobile */}
       {isMobile && !isFullscreen && (
@@ -498,16 +530,15 @@ export function ModelViewer({
           
           {inputImage && resolution && (
             <>
-              {projects.length > 0 && (
+              <div className="flex gap-1">
                 <Select
-                  value={selectedProjectId || ""}
-                  onValueChange={setSelectedProjectId}
+                  value={selectedProjectId || undefined}
+                  onValueChange={(value) => setSelectedProjectId(value)}
                 >
                   <SelectTrigger className="h-8 text-xs bg-background/50 backdrop-blur-sm w-32">
                     <SelectValue placeholder="Select project" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No project</SelectItem>
                     {projects.map((project) => (
                       <SelectItem key={project.id} value={project.id}>
                         {project.name}
@@ -515,7 +546,16 @@ export function ModelViewer({
                     ))}
                   </SelectContent>
                 </Select>
-              )}
+                
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8 bg-background/50 backdrop-blur-sm"
+                  onClick={() => setProjectDialogOpen(true)}
+                >
+                  <FolderPlus className="h-3 w-3" />
+                </Button>
+              </div>
               
               <Button
                 variant={state.saveSuccess ? "default" : "outline"}
