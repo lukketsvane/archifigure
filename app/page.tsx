@@ -1,34 +1,14 @@
 "use client";
-
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ModelViewer } from "@/components/model-viewer";
 import { PredictionsGrid } from "@/components/predictions-grid";
-import { 
-  Upload, 
-  Download, 
-  X, 
-  CheckCircle2, 
-  Image as ImageIcon, 
-  ChevronUp, 
-  ChevronDown,
-  ChevronRight,
-  Settings,
-  FolderPlus,
-  Github,
-  LayoutGrid
-} from "lucide-react";
+import { Upload, Download, X, CheckCircle2, Image as ImageIcon, ChevronUp, ChevronDown, ChevronRight, Settings, FolderPlus, Github, LayoutGrid } from "lucide-react";
 import Image from "next/image";
 import { generateModel, uploadImage, getProjects } from "./actions";
 import PasswordLock from "@/components/password-lock";
@@ -39,18 +19,11 @@ import { MobileGallery } from "@/components/mobile-gallery";
 import { ProjectDialog } from "@/components/project-dialog";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-
+import { useTheme } from "next-themes";
 import { useDropzone } from "react-dropzone";
 import { Project } from "@/types/database";
-
-function UploadZone({
-  onUploadComplete,
-  onError,
-  currentCount,
-  maxImages,
-}) {
+function UploadZone({ onUploadComplete, onError, currentCount, maxImages }) {
   const [uploading, setUploading] = useState(false);
-
   const handleDrop = async (acceptedFiles) => {
     if (acceptedFiles.length === 0) return;
     const allowedCount = Math.min(acceptedFiles.length, maxImages - currentCount);
@@ -80,24 +53,18 @@ function UploadZone({
     );
     setUploading(false);
   };
-
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop: handleDrop,
     accept: { "image/*": [".png", ".jpg", ".jpeg", ".gif", ".webp"] },
     maxSize: 32 * 1024 * 1024,
     multiple: true,
   });
-
   return (
     <div
       {...getRootProps()}
-      className={`
-        relative flex flex-col items-center justify-center w-full h-20
-        border-2 border-dashed rounded-lg cursor-pointer
-        transition-colors duration-200 ease-in-out
-        ${isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25"}
-        hover:border-primary hover:bg-primary/5
-      `}
+      className={`relative flex flex-col items-center justify-center w-full h-20 border-2 border-dashed rounded-lg cursor-pointer transition-colors duration-200 ease-in-out ${
+        isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25"
+      } hover:border-primary hover:bg-primary/5`}
     >
       <input {...getInputProps()} />
       <Upload className={`w-5 h-5 ${uploading ? "animate-pulse" : ""} text-muted-foreground`} />
@@ -107,24 +74,21 @@ function UploadZone({
     </div>
   );
 }
-
 export default function ModelGenerator() {
-  // State variables
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);
-  const [imageUrls, setImageUrls] = useState([]);
+  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [modelUrl, setModelUrl] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const [pendingSubmissions, setPendingSubmissions] = useState([]);
+  const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [autoGenerateMeshes, setAutoGenerateMeshes] = useState(false);
   const [gridExpanded, setGridExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileGalleryOpen, setMobileGalleryOpen] = useState(false);
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  const [currentProjectId, setCurrentProjectId] = useState(null);
-  const [projects, setProjects] = useState([]);
-  
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     steps: 50,
     guidance_scale: 5.5,
@@ -132,8 +96,8 @@ export default function ModelGenerator() {
     octree_resolution: 256,
     remove_background: true,
   });
-
-  // Load projects on mount
+  const { theme } = useTheme();
+  const isDarkMode = theme === "dark";
   useEffect(() => {
     const loadProjects = async () => {
       try {
@@ -143,84 +107,63 @@ export default function ModelGenerator() {
         console.error("Failed to load projects:", error);
       }
     };
-    
     loadProjects();
   }, []);
-
-  // Process predictions concurrently
-  async function processPredictionsConcurrently(urls, concurrency) {
+  async function processPredictionsConcurrently(urls: string[], concurrency: number) {
     if (!currentProjectId) {
       toast.error("Please select or create a project first");
       return [];
     }
-    
-    const results = [];
+    const results: any[] = [];
     let currentIndex = 0;
-    
-    // Create pending submission cards
     const newPendingSubmissions = urls.map((url, idx) => ({
       id: `pending-${Date.now()}-${idx}`,
       status: "starting",
-      input: { 
-        image: url,
-        octree_resolution: formData.octree_resolution
-      },
+      input: { image: url, octree_resolution: formData.octree_resolution },
       created_at: new Date().toISOString(),
-      project_id: currentProjectId
+      project_id: currentProjectId,
     }));
-    
-    setPendingSubmissions(prev => [...newPendingSubmissions, ...prev]);
-    
+    setPendingSubmissions((prev) => [...newPendingSubmissions, ...prev]);
     async function worker() {
       while (currentIndex < urls.length) {
         const index = currentIndex++;
         try {
-          results[index] = await generateModel({ 
-            image: urls[index], 
+          results[index] = await generateModel({
+            image: urls[index],
             ...formData,
-            project_id: currentProjectId
+            project_id: currentProjectId,
           });
         } catch (error) {
           results[index] = { error };
         }
       }
     }
-    
     const numWorkers = Math.min(concurrency, urls.length);
     const workers = [];
     for (let i = 0; i < numWorkers; i++) {
       workers.push(worker());
     }
-    
     await Promise.all(workers);
     return results;
   }
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e?: React.FormEvent<HTMLFormElement>) => {
     if (e) e.preventDefault();
-    
     if (!currentProjectId) {
       toast.error("Please select or create a project first");
       setProjectDialogOpen(true);
       return;
     }
-    
     if (imageUrls.length === 0) return;
-    
     setLoading(true);
     setError("");
     setSuccess(false);
-    
     try {
       const results = await processPredictionsConcurrently(imageUrls, 10);
-      
       if (!results.length) {
         setError("Generation failed");
         return;
       }
-      
       const allFailed = results.every((r) => r.error);
-      
       if (allFailed) {
         setError("Generation failed");
         toast.error("3D model generation failed");
@@ -229,80 +172,61 @@ export default function ModelGenerator() {
         toast.success("3D model generation started!");
         setTimeout(() => setSuccess(false), 5000);
       }
-      
       setImageUrls([]);
-    } catch (err) {
+    } catch (err: any) {
       setError("Generation failed");
       toast.error("Error: " + (err.message || "Unknown error"));
     } finally {
       setLoading(false);
     }
   };
-
-  const removeImage = (url) => {
+  const removeImage = (url: string) => {
     setImageUrls((prev) => prev.filter((img) => img !== url));
   };
-
-  const handleImagesGenerated = (urls) => {
+  const handleImagesGenerated = (urls: string[]) => {
     setImageUrls(urls);
-    
-    // Auto-submit for 3D generation if enabled
     if (urls.length > 0 && autoGenerateMeshes && currentProjectId) {
       handleSubmit();
     }
   };
-  
-  const handleImageGenerationSubmit = (submissions) => {
+  const handleImageGenerationSubmit = (submissions: any[]) => {
     if (submissions && submissions.length > 0) {
-      setPendingSubmissions(prev => [...submissions, ...prev]);
+      setPendingSubmissions((prev) => [...submissions, ...prev]);
     }
   };
-
-  const handleProjectCreated = (projectId, projectName) => {
+  const handleProjectCreated = (projectId: string, projectName: string) => {
     setCurrentProjectId(projectId);
-    setProjects(prev => [{ 
-      id: projectId, 
-      name: projectName, 
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }, ...prev]);
+    setProjects((prev) => [
+      {
+        id: projectId,
+        name: projectName,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      ...prev,
+    ]);
     setProjectDialogOpen(false);
     toast.success(`Project "${projectName}" created`);
   };
-
-  // Color scheme inspired by Figma
-  const figmaColors = {
-    purple: "#A259FF",
-    red: "#F24E1E",
-    blue: "#1ABCFE",
-    green: "#0ACF83",
-  };
-
+  const figmaColors = { purple: "#A259FF", red: "#F24E1E", blue: "#1ABCFE", green: "#0ACF83" };
   return (
     <PasswordLock>
       <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
-        {/* Navbar */}
         <div className="border-b">
           <div className="flex h-14 items-center px-4 max-w-screen-2xl mx-auto">
             <div className="flex items-center space-x-2 font-semibold text-xl">
-              <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">ArchiFigure</span>
+              <img
+                src={isDarkMode ? "https://i.ibb.co/v4wcBzGK/logo-default.png" : "https://i.ibb.co/BV7rr4z2/logo-darkmode.png"}
+                alt="ArchiFigure Logo"
+                className="h-8 w-auto"
+              />
               <span className="text-sm text-muted-foreground hidden md:inline-block">• 3D figurar til arkitektur modellar</span>
             </div>
             <div className="ml-auto flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="md:hidden"
-                onClick={() => setMobileGalleryOpen(true)}
-              >
+              <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileGalleryOpen(true)}>
                 <LayoutGrid className="h-5 w-5" />
               </Button>
-              <Link
-                href="https://github.com/your-username/your-repo"
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
+              <Link href="https://github.com/lukketsvane/archifigure/" target="_blank" rel="noreferrer" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <Github className="h-5 w-5" />
               </Link>
             </div>
@@ -613,35 +537,33 @@ export default function ModelGenerator() {
                       </div>
                       ) : (
                         <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
-
-                          {!currentProjectId && (
-                            <Button onClick={() => setProjectDialogOpen(true)}>
-                              <FolderPlus className="h-4 w-4 mr-2" />
-                              Opprett prosjekt
-                            </Button>
-                          )}
-                          
-                          <div className="mt-8 border-t pt-4 w-full">
-                            <p className="text-sm text-muted-foreground mb-2">
-                              Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
-                            </p>
-                            <div className="flex justify-center">
-                              <a href="https://ibb.co/xyDb4P6" target="_blank" rel="noopener noreferrer">
-                                <img 
-                                  src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
-                                  alt="vipps" 
-                                  className="w-32 h-32 object-contain" 
-                                />
-                              </a>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      </div>
-                      )}
-                      </Card>
-                      </div>
-            
+  {!currentProjectId && (
+    <Button onClick={() => setProjectDialogOpen(true)}>
+      <FolderPlus className="h-4 w-4 mr-2" />
+      Opprett prosjekt
+    </Button>
+  )}
+  
+  <div className="mt-8 border-t pt-4 w-full">
+    <p className="text-sm text-muted-foreground mb-2">
+      Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
+    </p>
+    <div className="flex justify-center">
+      <a href="https://ibb.co/xyDb4P6" target="_blank" rel="noopener noreferrer">
+        <img 
+          src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
+          alt="vipps" 
+          className="w-64 h-64 object-contain" 
+        />
+      </a>
+    </div>
+  </div>
+</div>
+)}
+</div>
+)}
+</Card>
+</div>
             {/* Collapsible predictions grid - hidden on mobile */}
             <div className={`border-t transition-all duration-300 ease-in-out ${gridExpanded ? 'h-[70vh]' : 'h-12'} hidden md:block`}>
               <div className="flex items-center justify-between px-4 h-12 bg-muted/40">
