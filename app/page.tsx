@@ -1,7 +1,4 @@
-
 "use client";
-
-
 
 import { useState, useEffect, useCallback } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -36,6 +33,8 @@ import PasswordLock from "@/components/password-lock";
 import { toast } from "sonner";
 import { ImageGeneration } from "@/components/image-generation";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { MobileGallery } from "@/components/mobile-gallery";
+import { Navbar } from "@/components/navbar";
 
 import { useDropzone } from "react-dropzone";
 
@@ -110,6 +109,7 @@ function UploadZone({
     </div>
   );
 }
+
 export default function ModelGenerator() {
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);
@@ -121,6 +121,7 @@ export default function ModelGenerator() {
   const [autoGenerateMeshes, setAutoGenerateMeshes] = useState(false);
   const [gridExpanded, setGridExpanded] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mobileGalleryOpen, setMobileGalleryOpen] = useState(false);
   const [formData, setFormData] = useState({
     steps: 50,
     guidance_scale: 5.5,
@@ -141,7 +142,7 @@ export default function ModelGenerator() {
   // Process predictions concurrently
   async function processPredictionsConcurrently(urls, concurrency) {
     const results = [];
-    let currentIndex = 0; // Changed from a0 to 0
+    let currentIndex = 0;
     
     // Create pending submission cards
     const newPendingSubmissions = urls.map((url, idx) => ({
@@ -176,6 +177,7 @@ export default function ModelGenerator() {
     await Promise.all(workers);
     return results;
   }
+
   const handleSubmit = async (e) => {
     if (e) e.preventDefault();
     if (imageUrls.length === 0 || cooldown > 0) return;
@@ -245,6 +247,22 @@ export default function ModelGenerator() {
   return (
     <PasswordLock>
       <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
+        {/* Custom Navbar with mobile gallery toggle */}
+        <Navbar onOpenGallery={() => setMobileGalleryOpen(true)} />
+        
+        {/* Mobile Gallery Component */}
+        <MobileGallery
+          isOpen={mobileGalleryOpen}
+          onClose={() => setMobileGalleryOpen(false)}
+          onSelectModel={(meshUrl, inputImage, resolution) => {
+            setModelUrl(meshUrl);
+            if (inputImage) setImageUrls([inputImage]);
+            if (resolution)
+              setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
+          }}
+          pendingSubmissions={pendingSubmissions}
+        />
+        
         {/* Main content area */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
           {/* Left side panel */}
@@ -510,8 +528,8 @@ export default function ModelGenerator() {
               </Card>
             </div>
             
-            {/* Collapsible predictions grid */}
-            <div className={`border-t transition-all duration-300 ease-in-out ${gridExpanded ? 'h-[70vh]' : 'h-12'}`}>
+            {/* Collapsible predictions grid - hidden on mobile */}
+            <div className={`border-t transition-all duration-300 ease-in-out ${gridExpanded ? 'h-[70vh]' : 'h-12'} hidden md:block`}>
               <div className="flex items-center justify-between px-4 h-12 bg-muted/40">
                 <span className="text-sm font-medium">Gallery</span>
                 <Button

@@ -1,10 +1,15 @@
 // components/navbar.tsx
 "use client";
 
-import { Github } from "lucide-react";
+import { Github, LayoutGrid } from "lucide-react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
 
-export function Navbar() {
+interface NavbarProps {
+  onOpenGallery?: () => void;
+}
+
+export function Navbar({ onOpenGallery }: NavbarProps) {
   return (
     <div className="border-b">
       <div className="flex h-14 items-center px-4 max-w-screen-2xl mx-auto">
@@ -13,6 +18,16 @@ export function Navbar() {
           <span className="text-sm text-muted-foreground hidden md:inline-block">• 3D figures for architectural models</span>
         </div>
         <div className="ml-auto flex items-center space-x-4">
+          {onOpenGallery && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden"
+              onClick={onOpenGallery}
+            >
+              <LayoutGrid className="h-5 w-5" />
+            </Button>
+          )}
           <Link
             href="https://github.com/your-username/your-repo"
             target="_blank"
