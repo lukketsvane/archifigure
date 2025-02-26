@@ -262,14 +262,14 @@ export default function ModelGenerator() {
             <Card className="p-4 border">
               <Tabs defaultValue="upload">
                 <TabsList className="grid grid-cols-2 mb-4">
-                  <TabsTrigger value="upload">Upload</TabsTrigger>
-                  <TabsTrigger value="instructions">Instructions</TabsTrigger>
+                  <TabsTrigger value="upload">Last opp</TabsTrigger>
+                  <TabsTrigger value="instructions">Instruksjonar</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="upload" className="space-y-4">
                   {/* Project selection */}
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="project" className="text-xs">Current Project</Label>
+                    <Label htmlFor="project" className="text-xs">Vald prosjekt</Label>
                     <Button 
                       variant="ghost" 
                       size="icon" 
@@ -291,7 +291,7 @@ export default function ModelGenerator() {
                       onClick={() => setProjectDialogOpen(true)}
                     >
                       <FolderPlus className="h-4 w-4 mr-2" />
-                      Create Project
+                      Lag Prosjekt
                     </Button>
                   )}
                 
@@ -324,7 +324,8 @@ export default function ModelGenerator() {
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm" className="flex w-full justify-start px-2 text-xs text-muted-foreground hover:text-foreground">
                           <Settings className="h-3.5 w-3.5 mr-2" />
-                          <span>Advanced Settings</span>
+                          <span>Avanserte innstillingar</span>
+
                           <ChevronRight className={`h-3.5 w-3.5 ml-auto transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
                         </Button>
                       </CollapsibleTrigger>
@@ -341,7 +342,7 @@ export default function ModelGenerator() {
                             className="py-0.5"
                           />
                           <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Steps: {formData.steps}</span>
+                            <span>Steg: {formData.steps}</span>
                           </div>
                         </div>
                         
@@ -356,7 +357,7 @@ export default function ModelGenerator() {
                             className="py-0.5"
                           />
                           <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Guidance: {formData.guidance_scale.toFixed(1)}</span>
+                            <span>Rettleiing: {formData.guidance_scale.toFixed(1)}</span>
                           </div>
                         </div>
                         
@@ -391,9 +392,9 @@ export default function ModelGenerator() {
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="256">256 - Fast</SelectItem>
+                                <SelectItem value="256">256 - rask</SelectItem>
                                 <SelectItem value="384">384 - Medium</SelectItem>
-                                <SelectItem value="512">512 - Detailed</SelectItem>
+                                <SelectItem value="512">512 - detaljert</SelectItem>
                               </SelectContent>
                             </Select>
                             <div className="text-xs text-muted-foreground mt-1">Quality</div>
@@ -408,7 +409,7 @@ export default function ModelGenerator() {
                               setFormData({ ...formData, remove_background: checked })
                             }
                           />
-                          <span className="text-xs">Remove background</span>
+                          <span className="text-xs">Fjern Bakgrunn</span>
                         </div>
                         
                         <div className="flex items-center space-x-2">
@@ -417,7 +418,7 @@ export default function ModelGenerator() {
                             checked={autoGenerateMeshes}
                             onCheckedChange={setAutoGenerateMeshes}
                           />
-                          <span className="text-xs">Automatically generate meshes</span>
+                          <span className="text-xs">Automatisk generer figurar</span>
                         </div>
                       </CollapsibleContent>
                     </Collapsible>
@@ -436,12 +437,12 @@ export default function ModelGenerator() {
                         {loading ? (
                           <span className="flex items-center">
                             <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            Generating...
+                            Snekrar modell
                           </span>
                         ) : !currentProjectId ? (
-                          "Create a Project First"
+                          "Opprett eit Prosjekt fyrst"
                         ) : (
-                          "Generate 3D Model"
+                          "Lag 3D modell"
                         )}
                       </span>
                     </Button>
@@ -509,7 +510,7 @@ export default function ModelGenerator() {
                     {loading ? (
                       <div className="flex flex-col items-center space-y-2">
                         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                        <p className="text-sm text-muted-foreground">Generating...</p>
+                        <p className="text-sm text-muted-foreground">Snekrar figur...</p>
                       </div>
                     ) : imageUrls.length > 0 ? (
                       <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
@@ -517,7 +518,7 @@ export default function ModelGenerator() {
                           <div key={url} className="relative border rounded aspect-square overflow-hidden">
                             <Image
                               src={url || "/placeholder.svg"}
-                              alt="Input"
+                              alt="Input"DA
                               fill
                               className="object-cover"
                               unoptimized

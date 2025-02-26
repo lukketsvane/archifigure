@@ -42,7 +42,7 @@ export default function PasswordLock({ children }: PasswordLockProps) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Enter password"
+            placeholder="Skriv inn passord"
             className={`px-4 py-2 border rounded focus:outline-none ${
               isDarkMode 
                 ? "bg-slate-800 text-white border-slate-600 placeholder-slate-400" 

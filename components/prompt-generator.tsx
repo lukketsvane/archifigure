@@ -208,18 +208,19 @@ export function PromptGenerator({ onGenerateImages }) {
     <div className="space-y-4">
       <div className="space-y-2">
         <div className="flex items-center">
-          <Label htmlFor="prompt" className="text-xs">Base Prompt</Label>
+          <Label htmlFor="prompt" className="text-xs">Leietekst</Label>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Info className="h-3.5 w-3.5 ml-1 text-muted-foreground" />
               </TooltipTrigger>
               <TooltipContent>
-                <p className="text-xs max-w-[200px]">
-                  Use {"{person}"}, {"{pose}"} as placeholders. For multiple variations, 
-                  use {"{person*3}"} syntax to repeat a tag 3 times.
-                </p>
-              </TooltipContent>
+              <p className="text-xs max-w-[200px]">
+                Bruk {"{person}"}, {"{pose}"} som plasshaldarar. For fleire variantar, 
+                bruk {"{person*3}"}-syntaksen for å gjenta ein tag 3 gongar.
+              </p>
+            </TooltipContent>
+
             </Tooltip>
           </TooltipProvider>
         </div>

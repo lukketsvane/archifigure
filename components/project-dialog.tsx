@@ -52,9 +52,9 @@ export function ProjectDialog({ open, onOpenChange, onProjectCreated }: ProjectD
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create New Project</DialogTitle>
+          <DialogTitle>Lag nytt prosjekt</DialogTitle>
           <DialogDescription>
-            Enter a name for your new 3D model collection.
+            skriv inn eitt namn for prosjektet
           </DialogDescription>
         </DialogHeader>
         
@@ -62,7 +62,7 @@ export function ProjectDialog({ open, onOpenChange, onProjectCreated }: ProjectD
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="project-name" className="text-right">
-                Name
+                Namn
               </Label>
               <Input
                 id="project-name"
