@@ -22,6 +22,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useDropzone } from "react-dropzone";
 import { Project } from "@/types/database";
+
 function UploadZone({ onUploadComplete, onError, currentCount, maxImages }) {
   const [uploading, setUploading] = useState(false);
   const handleDrop = async (acceptedFiles) => {
@@ -74,6 +75,7 @@ function UploadZone({ onUploadComplete, onError, currentCount, maxImages }) {
     </div>
   );
 }
+
 export default function ModelGenerator() {
   const [activeTab, setActiveTab] = useState("upload");
   const [loading, setLoading] = useState(false);
@@ -89,6 +91,7 @@ export default function ModelGenerator() {
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [projects, setProjects] = useState<any[]>([]);
+  const [desktopGalleryOpen, setDesktopGalleryOpen] = useState(false);
   const [formData, setFormData] = useState({
     steps: 50,
     guidance_scale: 5.5,
@@ -98,6 +101,7 @@ export default function ModelGenerator() {
   });
   const { theme } = useTheme();
   const isDarkMode = theme === "dark";
+
   useEffect(() => {
     const loadProjects = async () => {
       try {
@@ -109,6 +113,7 @@ export default function ModelGenerator() {
     };
     loadProjects();
   }, []);
+
   async function processPredictionsConcurrently(urls: string[], concurrency: number) {
     if (!currentProjectId) {
       toast.error("Please select or create a project first");
@@ -146,6 +151,7 @@ export default function ModelGenerator() {
     await Promise.all(workers);
     return results;
   }
+
   const handleSubmit = async (e?: React.FormEvent<HTMLFormElement>) => {
     if (e) e.preventDefault();
     if (!currentProjectId) {
@@ -180,20 +186,24 @@ export default function ModelGenerator() {
       setLoading(false);
     }
   };
+
   const removeImage = (url: string) => {
     setImageUrls((prev) => prev.filter((img) => img !== url));
   };
+
   const handleImagesGenerated = (urls: string[]) => {
     setImageUrls(urls);
     if (urls.length > 0 && autoGenerateMeshes && currentProjectId) {
       handleSubmit();
     }
   };
+
   const handleImageGenerationSubmit = (submissions: any[]) => {
     if (submissions && submissions.length > 0) {
       setPendingSubmissions((prev) => [...submissions, ...prev]);
     }
   };
+
   const handleProjectCreated = (projectId: string, projectName: string) => {
     setCurrentProjectId(projectId);
     setProjects((prev) => [
@@ -208,7 +218,9 @@ export default function ModelGenerator() {
     setProjectDialogOpen(false);
     toast.success(`Project "${projectName}" created`);
   };
+
   const figmaColors = { purple: "#A259FF", red: "#F24E1E", blue: "#1ABCFE", green: "#0ACF83" };
+
   return (
     <PasswordLock>
       <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
@@ -225,6 +237,9 @@ export default function ModelGenerator() {
               <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileGalleryOpen(true)}>
                 <LayoutGrid className="h-5 w-5" />
               </Button>
+              <Button variant="ghost" size="icon" className="hidden md:inline-flex" onClick={() => setDesktopGalleryOpen(true)}>
+                <LayoutGrid className="h-5 w-5" />
+              </Button>
               <Link href="https://github.com/lukketsvane/archifigure/" target="_blank" rel="noreferrer" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                 <Github className="h-5 w-5" />
               </Link>
@@ -232,7 +247,6 @@ export default function ModelGenerator() {
           </div>
         </div>
         
-        {/* Mobile Gallery Component */}
         <MobileGallery
           isOpen={mobileGalleryOpen}
           onClose={() => setMobileGalleryOpen(false)}
@@ -248,16 +262,39 @@ export default function ModelGenerator() {
           onCreateProject={() => setProjectDialogOpen(true)}
         />
         
-        {/* Project Dialog */}
+        {desktopGalleryOpen && (
+          <div className="fixed inset-0 z-50 bg-background flex flex-col">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-lg font-medium">Gallery</h2>
+              <Button variant="ghost" size="icon" onClick={() => setDesktopGalleryOpen(false)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <PredictionsGrid
+                onSelectModel={(meshUrl, inputImage, resolution) => {
+                  setModelUrl(meshUrl);
+                  if (inputImage) setImageUrls([inputImage]);
+                  if (resolution) {
+                    setFormData((prev) => ({ ...prev, octree_resolution: resolution }));
+                  }
+                  setDesktopGalleryOpen(false);
+                }}
+                pendingSubmissions={pendingSubmissions}
+                currentProjectId={currentProjectId}
+                onCreateProject={() => setProjectDialogOpen(true)}
+              />
+            </div>
+          </div>
+        )}
+        
         <ProjectDialog
           open={projectDialogOpen}
           onOpenChange={setProjectDialogOpen}
           onProjectCreated={handleProjectCreated}
         />
         
-        {/* Main content area */}
         <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-          {/* Left side panel */}
           <div className="w-full lg:w-[350px] lg:min-w-[350px] p-4 overflow-y-auto border-r">
             <Card className="p-4 border">
               <Tabs defaultValue="upload">
@@ -267,7 +304,6 @@ export default function ModelGenerator() {
                 </TabsList>
                 
                 <TabsContent value="upload" className="space-y-4">
-                  {/* Project selection */}
                   <div className="flex items-center justify-between">
                     <Label htmlFor="project" className="text-xs">Vald prosjekt</Label>
                     <Button 
@@ -307,7 +343,6 @@ export default function ModelGenerator() {
                         maxImages={10}
                       />
                       
-                      {/* Image Generation Component */}
                       <div className="pt-2">
                         <ImageGeneration 
                           onImagesGenerated={handleImagesGenerated} 
@@ -319,13 +354,11 @@ export default function ModelGenerator() {
                       </div>
                     </div>
                     
-                    {/* Collapsible Settings */}
                     <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
                       <CollapsibleTrigger asChild>
                         <Button variant="ghost" size="sm" className="flex w-full justify-start px-2 text-xs text-muted-foreground hover:text-foreground">
                           <Settings className="h-3.5 w-3.5 mr-2" />
                           <span>Avanserte innstillingar</span>
-
                           <ChevronRight className={`h-3.5 w-3.5 ml-auto transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
                         </Button>
                       </CollapsibleTrigger>
@@ -406,7 +439,7 @@ export default function ModelGenerator() {
                             id="background"
                             checked={formData.remove_background}
                             onCheckedChange={(checked) =>
-                              setFormData({ ...formData, remove_background: checked })
+                              setFormData({ ...formData, remove_background: checked as boolean })
                             }
                           />
                           <span className="text-xs">Fjern Bakgrunn</span>
@@ -416,7 +449,7 @@ export default function ModelGenerator() {
                           <Checkbox
                             id="autoGenerate"
                             checked={autoGenerateMeshes}
-                            onCheckedChange={setAutoGenerateMeshes}
+                            onCheckedChange={(checked) => setAutoGenerateMeshes(checked as boolean)}
                           />
                           <span className="text-xs">Automatisk generer figurar</span>
                         </div>
@@ -491,74 +524,71 @@ export default function ModelGenerator() {
             </Card>
           </div>
           
-          {/* Right side content */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 p-4 overflow-y-auto relative">
               <Card className="w-full h-full relative overflow-hidden border">
-              {modelUrl ? (
-  <div className="absolute inset-0">
-    <ModelViewer
-      url={modelUrl}
-      inputImage={imageUrls[0]}
-      resolution={formData.octree_resolution}
-      currentProjectId={currentProjectId}
-      onProjectSelect={setCurrentProjectId}
-    />
-  </div>
-) : (
-  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
-    {loading ? (
-      <div className="flex flex-col items-center space-y-2">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-        <p className="text-sm text-muted-foreground">Snekrar figur...</p>
-      </div>
-    ) : imageUrls.length > 0 ? (
-      <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
-        {imageUrls.map((url) => (
-          <div key={url} className="relative border rounded aspect-square overflow-hidden">
-            <Image
-              src={url || "/placeholder.svg"}
-              alt="Input"
-              fill
-              className="object-cover"
-              unoptimized
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/70 hover:bg-background/90"
-              onClick={() => removeImage(url)}
-            >
-              <X className="h-3 w-3" />
-            </Button>
-          </div>
-        ))}
-      </div>
-    ) : (
-        <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
-          <div className="mt-8 border-t pt-4 w-full">
-            <div className="flex justify-center">
-              <img 
-                src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
-                alt="vipps" 
-                className="w-64 h-64 object-contain rounded-lg" 
-              />
+                {modelUrl ? (
+                  <div className="absolute inset-0">
+                    <ModelViewer
+                      url={modelUrl}
+                      inputImage={imageUrls[0]}
+                      resolution={formData.octree_resolution}
+                      currentProjectId={currentProjectId}
+                      onProjectSelect={setCurrentProjectId}
+                    />
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-muted/30">
+                    {loading ? (
+                      <div className="flex flex-col items-center space-y-2">
+                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                        <p className="text-sm text-muted-foreground">Snekrar figur...</p>
+                      </div>
+                    ) : imageUrls.length > 0 ? (
+                      <div className="w-full h-full grid grid-cols-2 md:grid-cols-3 gap-3 p-4 overflow-auto">
+                        {imageUrls.map((url) => (
+                          <div key={url} className="relative border rounded aspect-square overflow-hidden">
+                            <Image
+                              src={url || "/placeholder.svg"}
+                              alt="Input"
+                              fill
+                              className="object-cover"
+                              unoptimized
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute top-1 right-1 h-5 w-5 rounded-full bg-background/70 hover:bg-background/90"
+                              onClick={() => removeImage(url)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center space-y-3 max-w-sm text-center p-6">
+                        <div className="mt-8 border-t pt-4 w-full">
+                          <div className="flex justify-center">
+                            <img 
+                              src="https://i.ibb.co/qzd8ZXp/vipps.jpg" 
+                              alt="vipps" 
+                              className="w-64 h-64 object-contain rounded-lg" 
+                            />
+                          </div>
+                          <div className="mt-4">
+                            <p className="text-sm text-muted-foreground mb-2">
+                              Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
             </div>
-            <div className="mt-4">
-              <p className="text-sm text-muted-foreground mb-2">
-                Vær grei å vipps en kopp kaffi, det koster meg noen kroner hver gang du lager en modell
-              </p>
-            </div>
-          </div>
-        </div>
-
-    )}
-  </div>
-)}
-</Card>
-</div>
-            {/* Collapsible predictions grid - hidden on mobile */}
             <div className={`border-t transition-all duration-300 ease-in-out ${gridExpanded ? 'h-[70vh]' : 'h-12'} hidden md:block`}>
               <div className="flex items-center justify-between px-4 h-12 bg-muted/40">
                 <span className="text-sm font-medium">Gallery</span>

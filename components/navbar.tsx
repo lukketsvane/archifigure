@@ -15,14 +15,15 @@ export function Navbar({ onOpenGallery }: NavbarProps) {
   const { resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
-  // After mounting, we can safely show the logo based on the theme
+  // Etter montering kan vi trygt vise logoen basert på temaet
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const logoSrc = mounted && resolvedTheme === "dark" 
-    ? "https://i.ibb.co/v4wcBzGK/logo-darkmode.png" 
-    : "https://i.ibb.co/BV7rr4z2/logo-default.png";
+  const logoSrc =
+    mounted && resolvedTheme === "dark"
+      ? "https://i.ibb.co/v4wcBzGK/logo-darkmode.png"
+      : "https://i.ibb.co/BV7rr4z2/logo-default.png";
 
   return (
     <div className="border-b">
@@ -30,9 +31,9 @@ export function Navbar({ onOpenGallery }: NavbarProps) {
         <div className="flex items-center space-x-3">
           {mounted && (
             <div className="h-8 w-8 relative">
-              <Image 
-                src={logoSrc} 
-                alt="ArchiFigure Logo" 
+              <Image
+                src={logoSrc}
+                alt="ArchiFigure Logo"
                 fill
                 className="object-contain"
                 unoptimized
@@ -40,8 +41,12 @@ export function Navbar({ onOpenGallery }: NavbarProps) {
             </div>
           )}
           <div className="flex items-center space-x-2 font-semibold text-xl">
-            <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">ArchiFigure.io</span>
-            <span className="text-sm text-muted-foreground hidden md:inline-block">• 3D figures for architectural models</span>
+            <span className="bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">
+              ArchiFigure.io
+            </span>
+            <span className="text-sm text-muted-foreground hidden md:inline-block">
+              • 3D figures for architectural models
+            </span>
           </div>
         </div>
         <div className="ml-auto flex items-center space-x-4">
@@ -49,7 +54,7 @@ export function Navbar({ onOpenGallery }: NavbarProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="md:flex"
               onClick={onOpenGallery}
             >
               <LayoutGrid className="h-5 w-5" />
