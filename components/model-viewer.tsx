@@ -256,7 +256,7 @@ function MovableLight() {
       window.removeEventListener("mouseup", handleMouseUp)
     }
   }, [gl, scene])
-
+  
   const color = tempToColor(lightState.temperature)
   return (
     <>
@@ -320,25 +320,25 @@ export function ModelViewer({
   const [isMobile, setIsMobile] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
-  
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768)
     checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
+    window.addEventListener("resize", checkMobile)
+    return () => window.removeEventListener("resize", checkMobile)
   }, [])
-  
+
   useEffect(() => {
     const fetchProjects = async () => {
       try {
-        const projectsList = await getProjects();
-        setProjects(projectsList);
+        const projectsList = await getProjects()
+        setProjects(projectsList)
       } catch (error) {
-        console.error("Error fetching projects:", error);
+        console.error("Error fetching projects:", error)
       }
-    };
-    fetchProjects();
-  }, []);
+    }
+    fetchProjects()
+  }, [])
 
   const handleError = useCallback((error: string) => {
     setState((prev) => ({ ...prev, error }))
@@ -354,37 +354,40 @@ export function ModelViewer({
 
   const handleProjectCreated = async (projectId: string, projectName: string) => {
     setSelectedProjectId(projectId)
-    setProjects(prev => [{ 
-      id: projectId, 
-      name: projectName, 
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }, ...prev])
+    setProjects((prev) => [
+      {
+        id: projectId,
+        name: projectName,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      ...prev,
+    ])
     toast.success(`Project "${projectName}" created`)
-    
+
     if (onProjectSelect) {
       onProjectSelect(projectId)
     }
   }
 
   const handleSaveModel = async () => {
-    if (!url || !inputImage || !resolution) return;
-    
-    setState((prev) => ({ ...prev, saving: true, error: null }));
-    
+    if (!url || !inputImage || !resolution) return
+
+    setState((prev) => ({ ...prev, saving: true, error: null }))
+
     try {
-      const existsResult = await checkModelExists(url, selectedProjectId || null);
-      
+      const existsResult = await checkModelExists(url, selectedProjectId || null)
+
       if (existsResult.exists) {
-        toast.info("This model is already saved");
-        setState((prev) => ({ 
-          ...prev, 
+        toast.info("This model is already saved")
+        setState((prev) => ({
+          ...prev,
           saving: false,
-          saveSuccess: true 
-        }));
-        return;
+          saveSuccess: true,
+        }))
+        return
       }
-      
+
       if (selectedProjectId) {
         const result = await saveModelToProject(
           selectedProjectId,
@@ -393,68 +396,67 @@ export function ModelViewer({
           inputImage,
           resolution,
           `Model ${new Date().toLocaleString()}`
-        );
-        
+        )
+
         if (result) {
-          setState((prev) => ({ ...prev, saveSuccess: true }));
-          toast.success("Model saved to project successfully");
-          
+          setState((prev) => ({ ...prev, saveSuccess: true }))
+          toast.success("Model saved to project successfully")
+
           if (onProjectSelect && selectedProjectId !== currentProjectId) {
-            onProjectSelect(selectedProjectId);
+            onProjectSelect(selectedProjectId)
           }
         } else {
           setState((prev) => ({
             ...prev,
             error: "Failed to save model to project",
-          }));
-          toast.error("Failed to save model to project");
+          }))
+          toast.error("Failed to save model to project")
         }
       } else {
-        await saveModelToDatabase(url, inputImage, resolution);
-        setState((prev) => ({ ...prev, saveSuccess: true }));
-        toast.success("Model saved successfully");
+        await saveModelToDatabase(url, inputImage, resolution)
+        setState((prev) => ({ ...prev, saveSuccess: true }))
+        toast.success("Model saved successfully")
       }
-    } catch (err) {
+    } catch (err: any) {
       setState((prev) => ({
         ...prev,
         error: err instanceof Error ? err.message : "Save failed",
-      }));
-      toast.error("Failed to save model");
+      }))
+      toast.error("Failed to save model")
     } finally {
-      setState((prev) => ({ ...prev, saving: false }));
+      setState((prev) => ({ ...prev, saving: false }))
     }
-  };
+  }
 
   const toggleFullscreen = () => {
-    setIsFullscreen(prev => !prev);
-  };
+    setIsFullscreen((prev) => !prev)
+  }
 
-  const containerClasses = isFullscreen 
-    ? "fixed inset-0 z-50 bg-background" 
-    : "h-full w-full";
+  // Updated containerClasses: on mobile (when not fullscreen) use full screen height.
+  const containerClasses = isFullscreen
+    ? "fixed inset-0 z-50 bg-background"
+    : isMobile
+    ? "h-screen w-full"
+    : "h-full w-full"
 
   return (
     <div className={containerClasses}>
       {isFullscreen && (
         <div className="absolute top-0 left-0 right-0 z-10 p-2 flex justify-between items-center bg-background/80 backdrop-blur-sm">
           <h2 className="text-lg font-medium">3D Model Viewer</h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleFullscreen}
-          >
+          <Button variant="ghost" size="icon" onClick={toggleFullscreen}>
             <X className="h-5 w-5" />
           </Button>
         </div>
       )}
-      
+
       <ProjectDialog
         open={projectDialogOpen}
         onOpenChange={setProjectDialogOpen}
         onProjectCreated={handleProjectCreated}
       />
-      
-      <div className={`${isMobile ? 'min-h-[350px] h-[70vh]' : 'h-full w-full'}`}>
+
+      <div className={`${isMobile ? "min-h-[350px] h-[70vh]" : "h-full w-full"}`}>
         <Canvas shadows camera={{ position: [0, 0, 5] }} style={{ background: bg }}>
           <color attach="background" args={[bg]} />
           <Suspense fallback={null}>
@@ -462,7 +464,7 @@ export function ModelViewer({
           </Suspense>
         </Canvas>
       </div>
-      
+
       {isMobile && !isFullscreen && (
         <Button
           variant="outline"
@@ -474,8 +476,12 @@ export function ModelViewer({
           Fullscreen
         </Button>
       )}
-      
-      <div className={`${isFullscreen ? 'absolute bottom-4' : 'absolute bottom-2'} left-0 right-0 flex justify-center gap-1 z-10 px-2`}>
+
+      <div
+        className={`${
+          isFullscreen ? "absolute bottom-4" : "absolute bottom-2"
+        } left-0 right-0 flex justify-center gap-1 z-10 px-2`}
+      >
         <div className="flex gap-1 overflow-x-auto pb-1 max-w-full bg-background/40 backdrop-blur-sm rounded-lg p-1">
           <Button
             variant="outline"
@@ -486,7 +492,7 @@ export function ModelViewer({
             <Layers className="h-3 w-3 mr-1" />
             Toggle Textures
           </Button>
-          
+
           <Button
             variant="outline"
             size="sm"
@@ -503,7 +509,7 @@ export function ModelViewer({
             <Download className="h-3 w-3 mr-1" />
             Download
           </Button>
-          
+
           {inputImage && resolution && (
             <>
               <div className="flex gap-1">
@@ -522,7 +528,7 @@ export function ModelViewer({
                     ))}
                   </SelectContent>
                 </Select>
-                
+
                 <Button
                   variant="outline"
                   size="icon"
@@ -532,7 +538,7 @@ export function ModelViewer({
                   <FolderPlus className="h-3 w-3" />
                 </Button>
               </div>
-              
+
               <Button
                 variant={state.saveSuccess ? "default" : "outline"}
                 size="sm"
@@ -547,7 +553,7 @@ export function ModelViewer({
           )}
         </div>
       </div>
-      
+
       {state.error && (
         <Alert variant="destructive" className="absolute top-4 left-4 right-4">
           <AlertCircle className="h-4 w-4" />
@@ -556,34 +562,4 @@ export function ModelViewer({
       )}
     </div>
   )
-}
-
-function tempToColor(kelvin: number) {
-  kelvin /= 100
-  let red, green, blue
-  if (kelvin <= 66) {
-    red = 255
-    green = Math.min(
-      255,
-      Math.max(0, 99.4708025861 * Math.log(kelvin) - 161.1195681661)
-    )
-    blue =
-      kelvin <= 19
-        ? 0
-        : Math.min(
-            255,
-            Math.max(0, 138.5177312231 * Math.log(kelvin - 10) - 305.0447927307)
-          )
-  } else {
-    red = Math.min(
-      255,
-      Math.max(0, 329.698727446 * Math.pow(kelvin - 60, -0.1332047592))
-    )
-    green = Math.min(
-      255,
-      Math.max(0, 288.1221695283 * Math.pow(kelvin - 60, -0.0755148492))
-    )
-    blue = 255
-  }
-  return `rgb(${red}, ${green}, ${blue})`
 }
