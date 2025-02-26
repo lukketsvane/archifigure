@@ -1,41 +1,47 @@
-# meshgen.io
+# ArchiFigure
 
-Generate **3D-printable models** from text prompts or images with AI-driven diffusion models and **Hunyuan3D-2**.
+Generer **3D-modellar** frå tekst eller bilete med KI-drivne diffusjonsmodellar og **Hunyuan3D-2**.
 
-## Features
-- **Automated 3D Model Generation** from text or image inputs.
-- **High-quality diffusion-based image creation**.
-- **Background removal & optimization** for 3D conversion.
-- **Mesh processing using Hunyuan3D-2**.
-- **Batch processing** for multiple model variations.
+## Funksjonar
+- **Automatisk 3D-modellgenerering** frå tekst eller bilete.
+- **Høgkvalitets diffusjonsbasert biletskaping**.
+- **Bakgrunnsfjerning og optimalisering** for 3D-konvertering.
+- **Mesh-prosessering med Hunyuan3D-2**.
+- **Serieprosessering** for fleire modellvariasjonar.
 
-## Use Cases
-- **Architecture**: Custom structures, facades, and modular elements.
-- **Product Design**: Rapid prototyping with variations.
-- **Gaming & VFX**: AI-generated assets for environments.
-- **Customization**: Mass-customized 3D-printed products.
+## Bruksområde
+- **Arkitektur**: Tilpassa figurar for arkitekturmodellar.
+- **Produktdesign**: Rask prototyping med variasjonar.
+- **Spel og VFX**: KI-genererte figurar for omgivnader.
+- **Tilpassing**: Tilpassa 3D-modellerte produkt.
 
-## Getting Started
+## Kom i gang
 ```sh
-# Clone the repository
-git clone https://github.com/YOUR-USERNAME/meshgen.io.git
-cd meshgen.io
+# Klon kodebasen
+git clone https://github.com/YOUR-USERNAME/archifigure.git
+cd archifigure
 
-# Install dependencies
+# Installer avhengigheiter
 npm install
 
-# Run the development server
+# Køyr utviklingsserveren
 npm run dev
 ```
 
-## Deployment
+## Publisering
 ```sh
-# Build for production
+# Bygg for produksjon
 npm run build
 
-# Start the production server
+# Start produksjonsserveren
 npm start
 ```
 
-## License
-MIT License
+## Tilgang
+Nettsida er tilgjengeleg på:
+- [archifigure.iverfinne.no](http://archifigure.iverfinne.no/)
+- [figure.iverfinne.no](http://figure.iverfinne.no/)
+- [archifigure.vercel.app](https://archifigure.vercel.app/)
+
+## Lisens
+MIT Lisens
