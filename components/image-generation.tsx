@@ -36,23 +36,22 @@ export function ImageGeneration({
     const images = [];
     const pendingSubmissions = [];
 
-    try {
-      // Process prompts sequentially
-      for (let i = 0; i < prompts.length; i++) {
-        const prompt = prompts[i];
-        setProgress({ current: i + 1, total: prompts.length });
-        
-        // Create a pending submission card
-        const pendingId = `pending-${Date.now()}-${i}`;
-        const pendingSubmission = {
-          id: pendingId,
-          status: "starting",
-          input: { image: "" },
-          created_at: new Date().toISOString(),
-          prompt: prompt.replace(/, full standing body, head to toe view, studio lighting, set stark against a solid white background/g, "")
-        };
-        pendingSubmissions.push(pendingSubmission);
-        
+    for (let i = 0; i < prompts.length; i++) {
+      const prompt = prompts[i];
+      setProgress({ current: i + 1, total: prompts.length });
+      
+      // Create a pending submission card
+      const pendingId = `pending-${Date.now()}-${i}`;
+      const pendingSubmission = {
+        id: pendingId,
+        status: "starting",
+        input: { image: "" },
+        created_at: new Date().toISOString(),
+        prompt: prompt.replace(/, full standing body, head to toe view, studio lighting, set stark against a solid white background/g, "")
+      };
+      pendingSubmissions.push(pendingSubmission);
+      
+      try {
         // Call the API to generate an image
         const response = await fetch("/api/generate-image", {
           method: "POST",
@@ -70,7 +69,8 @@ export function ImageGeneration({
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.error || errorData.details || "Image generation failed");
+          toast.error(`Feil for prompt "${prompt}": ${errorData.error || errorData.details || "Image generation failed"}`);
+          continue; // Hopp over denne prompten
         }
 
         const data = await response.json();
@@ -81,37 +81,30 @@ export function ImageGeneration({
             prompt,
             pendingId
           });
+          pendingSubmission.input.image = data.imageUrl;
+        } else {
+          toast.error(`Ingen bilete generert for prompt: "${prompt}"`);
         }
+      } catch (err) {
+        console.error("Error generating image for prompt:", prompt, err);
+        toast.error(`Feil under generering for prompt: "${prompt}"`);
+        continue;
       }
-
-      // Update pending submissions with the generated images
-      for (let i = 0; i < images.length; i++) {
-        const image = images[i];
-        const pendingSubmission = pendingSubmissions.find(p => p.id === image.pendingId);
-        if (pendingSubmission) {
-          pendingSubmission.input.image = image.url;
-        }
-      }
-
-      // Notify parent about new submissions
-      if (onSubmit && pendingSubmissions.length > 0) {
-        onSubmit(pendingSubmissions);
-      }
-
-      setGeneratedImages(images);
-      
-      if (onImagesGenerated && images.length > 0) {
-        // Pass the generated image URLs to the parent component
-        onImagesGenerated(images.map(img => img.url));
-      }
-      
-      toast.success(`Generated ${images.length} images`);
-    } catch (error) {
-      console.error("Error generating images:", error);
-      toast.error("Error generating images: " + (error.message || "Unknown error"));
-    } finally {
-      setGeneratingImages(false);
     }
+
+    // Notify parent about new submissions
+    if (onSubmit && pendingSubmissions.length > 0) {
+      onSubmit(pendingSubmissions);
+    }
+
+    setGeneratedImages(images);
+    
+    if (onImagesGenerated && images.length > 0) {
+      onImagesGenerated(images.map(img => img.url));
+    }
+    
+    toast.success(`Generated ${images.length} images`);
+    setGeneratingImages(false);
   };
 
   // Remove an image from the generated images

@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    // Check if API token exists
+    // Sjekk om API-token finst
     const apiToken = process.env.REPLICATE_API_TOKEN;
     if (!apiToken) {
       console.error("Missing REPLICATE_API_TOKEN environment variable");
@@ -26,28 +26,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const replicate = new Replicate({
-      auth: apiToken,
-    });
+    const replicate = new Replicate({ auth: apiToken });
 
     let output;
     
     if (use_imagen3) {
-      // Use Google's Imagen-3
-      output = await replicate.run(
-        "google/imagen-3",
-        {
-          input: {
-            prompt,
-            aspect_ratio: aspect_ratio || "1:1",
-            negative_prompt: negative_prompt || "",
-            safety_filter_level: safety_filter_level || "block_only_high" // Most permissive
-          }
+      // Bruk Googles Imagen-3
+      output = await replicate.run("google/imagen-3", {
+        input: {
+          prompt,
+          aspect_ratio: aspect_ratio || "1:1",
+          negative_prompt: negative_prompt || "",
+          safety_filter_level: safety_filter_level || "block_only_high"
         }
-      );
+      });
     } else {
-      // Fallback to Stable Diffusion
-      // Calculate dimensions based on aspect ratio
+      // Fallback til Stable Diffusion
       let width = 768;
       let height = 768;
       
@@ -81,24 +75,24 @@ export async function POST(request: Request) {
       );
     }
 
-    // Handle the output - for Imagen or array from Stable Diffusion
-    const imageUrl = use_imagen3 ? output : (Array.isArray(output) && output.length > 0 ? output[0] : null);
+    // Hent ut imageUrl for enten Imagen-3 eller Stable Diffusion
+    const imageUrl = use_imagen3 
+      ? output 
+      : (Array.isArray(output) && output.length > 0 ? output[0] : "");
 
-    if (!imageUrl) {
-      throw new Error("No image was generated");
-    }
+    // Bruk ei tom streng i staden for å kaste ein feil om ingen bilete vart genererte
+    const finalImageUrl = imageUrl || "";
 
-    // Upload to imgbb for persistence
+    // Last opp til imgbb for lagring
     try {
-      const imgbbResponse = await uploadToImgbb(imageUrl);
+      const imgbbResponse = await uploadToImgbb(finalImageUrl);
       return NextResponse.json({ 
-        imageUrl: imgbbResponse.url || imageUrl,
-        originalUrl: imageUrl 
+        imageUrl: imgbbResponse.url || finalImageUrl,
+        originalUrl: finalImageUrl 
       });
     } catch (uploadError) {
-      // If upload fails, still return the original image URL
       console.error("ImgBB upload failed:", uploadError);
-      return NextResponse.json({ imageUrl, originalUrl: imageUrl });
+      return NextResponse.json({ imageUrl: finalImageUrl, originalUrl: finalImageUrl });
     }
   } catch (error: any) {
     console.error("Error generating image:", error);
@@ -111,17 +105,21 @@ export async function POST(request: Request) {
 
 async function uploadToImgbb(imageUrl: string) {
   try {
-    // Fetch the image data
+    if (!imageUrl) {
+      return { url: "" };
+    }
+    
+    // Hent bildedata
     const imageResponse = await fetch(imageUrl);
     const imageBuffer = await imageResponse.arrayBuffer();
-    const base64Image = Buffer.from(imageBuffer).toString('base64');
+    const base64Image = Buffer.from(imageBuffer).toString("base64");
 
-    // Create form data for imgbb
+    // Lag formdata for imgbb
     const formData = new FormData();
     formData.append("key", process.env.IMGBB_API_KEY || "67bc9085dfd47a9a6df5409995e66874");
     formData.append("image", base64Image);
 
-    // Upload to imgbb
+    // Last opp til imgbb
     const response = await fetch("https://api.imgbb.com/1/upload", {
       method: "POST",
       body: formData,
@@ -136,7 +134,6 @@ async function uploadToImgbb(imageUrl: string) {
     return { url: data.data.url };
   } catch (error) {
     console.error("Error uploading to ImgBB:", error);
-    // Return empty object if upload fails
     return { url: "" };
   }
 }
