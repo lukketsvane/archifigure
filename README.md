@@ -31,9 +31,44 @@ cd archifigure
 # Installer avhengigheter
 npm install
 
+# Kopier eksempel-miljøvariablar
+cp .env.local.example .env.local
+
+# Oppdater miljøvariablane med dine eigne nøklar
+# - Følg instruksjonane under "Autentiseringsoppsett"
+
 # Køyr utviklingsserveren
 npm run dev
 ```
+
+### Autentiseringsoppsett
+
+1. **Opprett eit prosjekt i Google Cloud Platform:**
+   - Gå til [Google Cloud Console](https://console.cloud.google.com/)
+   - Opprett eit nytt prosjekt
+   - Aktiver OAuth 2.0 via "APIs & Services > Credentials"
+   - Legg til godkjente omadresseringsadresser (t.d. http://localhost:3000/api/auth/callback/google)
+   - Kopier client ID og client secret til .env.local
+
+2. **Generer ein sikker NextAuth-nøkkel:**
+   ```sh
+   openssl rand -base64 32
+   ```
+   - Legg denne nøkkelen til i .env.local som NEXTAUTH_SECRET
+
+3. **Supabase-database:**
+   - Opprett ein bruker-tabell i Supabase-databasen med følgande SQLspørring:
+   ```sql
+   CREATE TABLE IF NOT EXISTS public.users (
+     id TEXT PRIMARY KEY,
+     email TEXT UNIQUE NOT NULL,
+     name TEXT,
+     image TEXT,
+     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+   );
+   ```
+   - Legg til Supabase-nøklar i .env.local
 
 ## Bruk
 1. **Opprett prosjekt:** Lag eit nytt prosjekt for å organisere dine 3D-modellar.

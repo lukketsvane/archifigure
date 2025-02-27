@@ -1,0 +1,22 @@
+# Files that are no longer needed after refactoring:
+
+1. None identified yet - our approach was to refactor existing files rather than create duplicates.
+
+# Potential candidates for future refactoring/deletion:
+
+1. If we build a standalone ModelGrid component, parts of predictions-grid.tsx could be removed.
+2. If mobile components are fully integrated into their parent components using responsive design, mobile-controls.tsx and mobile-gallery.tsx might become redundant.
+3. Password-lock.tsx could be made more secure by moving the authentication to the server side.
+
+# Notes:
+- We've successfully reduced code size by:
+  - Moving duplicate code to shared hooks (use-model.tsx, use-predictions.tsx, etc.)
+  - Creating reusable UI components (loading-indicator.tsx, glass-container.tsx, model-card.tsx)
+  - Simplifying the model-viewer.tsx component by splitting it into smaller parts
+  - Extracting utility functions to utils.ts
+
+- The code is now more maintainable with:
+  - Better type safety
+  - Clearer separation of concerns
+  - More consistent patterns
+  - Centralized state management

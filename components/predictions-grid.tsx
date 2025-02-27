@@ -127,13 +127,22 @@ export const PredictionsGrid = ({
       if (e.key === "Shift") setSelectionMode(false);
     };
     
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
+    // Mobile detection
+    const isMobileDevice = window.innerWidth < 768;
     
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
+    // Only add keyboard event listeners on desktop
+    if (!isMobileDevice) {
+      window.addEventListener("keydown", handleKeyDown);
+      window.addEventListener("keyup", handleKeyUp);
+      
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+        window.removeEventListener("keyup", handleKeyUp);
+      };
+    }
+    
+    // For mobile, we'll handle selection differently
+    return () => {};
   }, []);
 
   useEffect(() => {
@@ -171,32 +180,40 @@ export const PredictionsGrid = ({
           try {
             const projects = await getProjects();
             
-            if (state.selectedProjectId || projects.length > 0) {
+            // Eagerly load models for all projects
+            const projectModelsMap: Record<string, ProjectModel[]> = {};
+            
+            if (projects.length > 0) {
+              // First set projects in state with loading indicator
+              if (mounted) {
+                setState(prev => ({
+                  ...prev,
+                  projects,
+                  loading: true
+                }));
+              }
+              
+              // Load models for all projects in parallel
+              const modelsPromises = projects.map(project => 
+                getProjectModels(project.id).then(models => {
+                  projectModelsMap[project.id] = models;
+                  return { projectId: project.id, models };
+                })
+              );
+              
+              await Promise.all(modelsPromises);
+              
+              // Set default selected project if none is selected
               const projectId = state.selectedProjectId || projects[0]?.id;
               
-              if (projectId) {
-                const projectModels = await getProjectModels(projectId);
-                
-                if (mounted) {
-                  setState((prev) => ({
-                    ...prev,
-                    projects,
-                    projectModels: {
-                      ...prev.projectModels,
-                      [projectId]: projectModels
-                    },
-                    selectedProjectId: projectId,
-                    loading: false,
-                  }));
-                }
-              } else {
-                if (mounted) {
-                  setState((prev) => ({
-                    ...prev,
-                    projects,
-                    loading: false,
-                  }));
-                }
+              if (mounted) {
+                setState((prev) => ({
+                  ...prev,
+                  projects,
+                  projectModels: projectModelsMap,
+                  selectedProjectId: projectId || null,
+                  loading: false,
+                }));
               }
             } else {
               if (mounted) {
@@ -304,8 +321,46 @@ export const PredictionsGrid = ({
     }
   }, []);
 
+  // Track long press for mobile selection
+  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    setIsMobile(window.innerWidth < 768);
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  const handleLongPressStart = useCallback((id: string, event: React.MouseEvent | React.TouchEvent) => {
+    if (!isMobile) return;
+    
+    event.stopPropagation();
+    event.preventDefault();
+    
+    const timer = setTimeout(() => {
+      setSelectionMode(true);
+      setSelectedItems(prev => {
+        const newSet = new Set(prev);
+        newSet.add(id);
+        return newSet;
+      });
+    }, 500); // 500ms long press
+    
+    setLongPressTimer(timer);
+  }, [isMobile]);
+  
+  const handleLongPressEnd = useCallback(() => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      setLongPressTimer(null);
+    }
+  }, [longPressTimer]);
+  
   const toggleItemSelection = useCallback((id: string, event: React.MouseEvent) => {
-    if (!selectionMode) return;
+    // On desktop, require shift key (selectionMode)
+    // On mobile, handle differently
+    if (!selectionMode && !isMobile) return;
     
     event.stopPropagation();
     event.preventDefault();
@@ -319,7 +374,7 @@ export const PredictionsGrid = ({
       }
       return newSet;
     });
-  }, [selectionMode]);
+  }, [selectionMode, isMobile]);
 
   const clearSelection = useCallback(() => {
     setSelectedItems(new Set());
@@ -552,18 +607,29 @@ export const PredictionsGrid = ({
 
   const loadProjectModels = async (projectId: string) => {
     try {
-      setState(prev => ({ ...prev, loading: true, selectedProjectId: projectId }));
-      
-      const projectModels = await getProjectModels(projectId);
-      
-      setState(prev => ({
-        ...prev,
-        projectModels: {
-          ...prev.projectModels,
-          [projectId]: projectModels
-        },
-        loading: false
+      // Set selected project ID immediately
+      setState(prev => ({ 
+        ...prev, 
+        loading: !prev.projectModels[projectId], // Only show loading if models aren't already loaded
+        selectedProjectId: projectId 
       }));
+      
+      // Only fetch if we don't already have the models for this project
+      if (!state.projectModels[projectId]) {
+        const projectModels = await getProjectModels(projectId);
+        
+        setState(prev => ({
+          ...prev,
+          projectModels: {
+            ...prev.projectModels,
+            [projectId]: projectModels
+          },
+          loading: false
+        }));
+      } else {
+        // Just update the selected project ID without loading
+        setState(prev => ({ ...prev, loading: false }));
+      }
     } catch (error) {
       console.error("Error loading project models:", error);
       toast.error("Failed to load project models");
@@ -617,6 +683,12 @@ export const PredictionsGrid = ({
           onSelectModel(model.url, model.input_image, model.resolution);
         }
       }}
+      onMouseDown={(e) => handleLongPressStart(model.id, e)}
+      onMouseUp={handleLongPressEnd}
+      onMouseLeave={handleLongPressEnd}
+      onTouchStart={(e) => handleLongPressStart(model.id, e)}
+      onTouchEnd={handleLongPressEnd}
+      onTouchCancel={handleLongPressEnd}
     >
       <div className="relative aspect-square">
         <Image
@@ -652,35 +724,50 @@ export const PredictionsGrid = ({
                     <Download className="mr-2 h-4 w-4" />
                     Download
                   </CommandItem>
-                  <CommandItem 
-                    onSelect={async () => {
-                      if (confirm('Are you sure you want to delete this model?')) {
-                        await fetch("/api/delete-model", {
-                          method: "DELETE",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ id: model.id }),
-                        });
-                        setState((prev) => ({
-                          ...prev,
-                          savedModels: prev.savedModels.filter((m) => m.id !== model.id),
-                        }));
-                        toast.success("Model deleted successfully");
-                      }
-                    }}
-                    className="text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </CommandItem>
+                  {isMobile && (
+                    <CommandItem onSelect={() => {
+                      setSelectedItems(new Set([model.id]));
+                      setMoveDialogOpen(true);
+                    }}>
+                      <Move className="mr-2 h-4 w-4" />
+                      Move to project
+                    </CommandItem>
+                  )}
+                  {!isMobile && (
+                    <CommandItem 
+                      onSelect={async () => {
+                        if (confirm('Are you sure you want to delete this model?')) {
+                          await fetch("/api/delete-model", {
+                            method: "DELETE",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ id: model.id }),
+                          });
+                          setState((prev) => ({
+                            ...prev,
+                            savedModels: prev.savedModels.filter((m) => m.id !== model.id),
+                          }));
+                          toast.success("Model deleted successfully");
+                        }
+                      }}
+                      className="text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </CommandItem>
+                  )}
                 </CommandList>
               </Command>
             </PopoverContent>
           </Popover>
         </div>
-      </div>
-      <div className="p-2 text-xs text-muted-foreground flex items-center justify-between">
-        <span>{model.resolution}</span>
-        <span>Saved</span>
+        <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm p-2">
+          <div className="font-medium truncate">
+            {model.id.split('-')[0]}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Resolution: {model.resolution}
+          </div>
+        </div>
       </div>
     </Card>
   );
@@ -698,6 +785,12 @@ export const PredictionsGrid = ({
           onSelectModel(model.model_url, model.input_image, model.resolution);
         }
       }}
+      onMouseDown={(e) => handleLongPressStart(model.id, e)}
+      onMouseUp={handleLongPressEnd}
+      onMouseLeave={handleLongPressEnd}
+      onTouchStart={(e) => handleLongPressStart(model.id, e)}
+      onTouchEnd={handleLongPressEnd}
+      onTouchCancel={handleLongPressEnd}
     >
       <div className="relative aspect-square">
         <Image
@@ -723,6 +816,17 @@ export const PredictionsGrid = ({
               <Command>
                 <CommandList>
                   <CommandItem onSelect={() => {
+                    const link = document.createElement("a");
+                    link.href = model.model_url;
+                    link.download = `${model.name || "model"}.glb`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download
+                  </CommandItem>
+                  <CommandItem onSelect={() => {
                     setSelectedItems(new Set([model.id]));
                     setMoveDialogOpen(true);
                   }}>
@@ -737,37 +841,43 @@ export const PredictionsGrid = ({
                     <Pencil className="mr-2 h-4 w-4" />
                     Rename
                   </CommandItem>
-                  <CommandItem 
-                    onSelect={async () => {
-                      if (confirm('Are you sure you want to delete this model?')) {
-                        await deleteProjectModel(model.id);
-                        setState((prev) => {
-                          const projectModels = prev.projectModels[model.project_id] || [];
-                          return {
-                            ...prev,
-                            projectModels: {
-                              ...prev.projectModels,
-                              [model.project_id]: projectModels.filter(m => m.id !== model.id)
-                            }
-                          };
-                        });
-                        toast.success("Model deleted successfully");
-                      }
-                    }}
-                    className="text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </CommandItem>
+                  {!isMobile && (
+                    <CommandItem 
+                      onSelect={async () => {
+                        if (confirm('Are you sure you want to delete this model?')) {
+                          await deleteProjectModel(model.id);
+                          setState((prev) => {
+                            const projectModels = prev.projectModels[model.project_id] || [];
+                            return {
+                              ...prev,
+                              projectModels: {
+                                ...prev.projectModels,
+                                [model.project_id]: projectModels.filter(m => m.id !== model.id)
+                              }
+                            };
+                          });
+                          toast.success("Model deleted successfully");
+                        }
+                      }}
+                      className="text-destructive"
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </CommandItem>
+                  )}
                 </CommandList>
               </Command>
             </PopoverContent>
           </Popover>
         </div>
-      </div>
-      <div className="p-2 text-xs text-muted-foreground flex items-center justify-between">
-        <span>{model.resolution}</span>
-        <span>{model.name || "Model"}</span>
+        <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-sm p-2">
+          <div className="font-medium truncate">
+            {model.name || "Model"}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Resolution: {model.resolution}
+          </div>
+        </div>
       </div>
     </Card>
   );
@@ -1004,7 +1114,7 @@ const renderControls = () => (
           ) : (
             <div 
               ref={gridRef}
-              className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 relative" : ""}
+              className={viewMode === 'grid' ? "grid grid-cols-2 sm:grid-cols-3 gap-0 relative" : ""}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
@@ -1130,11 +1240,9 @@ const renderControls = () => (
             <Download className="h-4 w-4" />
           </Button>
           
-          {state.activeTab === "projects" && (
-            <Button variant="ghost" size="sm" onClick={() => setMoveDialogOpen(true)} title="Move to project">
-              <Move className="h-4 w-4" />
-            </Button>
-          )}
+          <Button variant="ghost" size="sm" onClick={() => setMoveDialogOpen(true)} title="Move to project">
+            <Move className="h-4 w-4" />
+          </Button>
           
           {state.activeTab === "projects" && (
             <Button variant="ghost" size="sm" onClick={() => setRenameDialogOpen(true)} title="Rename">
@@ -1142,13 +1250,18 @@ const renderControls = () => (
             </Button>
           )}
           
-          <Button variant="ghost" size="sm" onClick={() => setDeleteDialogOpen(true)} title="Delete">
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {!isMobile && (
+            <Button variant="ghost" size="sm" onClick={() => setDeleteDialogOpen(true)} title="Delete">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
           
           <div className="h-4 border-r mx-2"></div>
           
-          <Button variant="ghost" size="sm" onClick={clearSelection} title="Clear selection">
+          <Button variant="ghost" size="sm" onClick={() => {
+            clearSelection();
+            setSelectionMode(false);
+          }} title="Close">
             <X className="h-4 w-4" />
           </Button>
         </div>

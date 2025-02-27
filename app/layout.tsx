@@ -1,8 +1,9 @@
+
 import "./globals.css";
 import { Inter } from "next/font/google";
-import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "sonner";
 import { Navbar } from "@/components/navbar";
+import { AuthProvider } from "@/components/auth-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -17,14 +18,15 @@ interface RootLayoutProps {
 
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
-    <html lang="nn">
-      <body className={inter.className}>
-        <ThemeProvider>
+    <html lang="nn" className="light">
+      <body className={`${inter.className} bg-white text-black`}>
+        <AuthProvider>
           <div className="flex flex-col min-h-screen">
+            <Navbar />
             <main className="flex-1">{children}</main>
           </div>
           <Toaster position="top-right" />
-        </ThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );

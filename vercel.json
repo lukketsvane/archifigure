@@ -1,0 +1,33 @@
+{
+  "buildCommand": "npm run build",
+  "installCommand": "npm ci",
+  "framework": "nextjs",
+  "outputDirectory": ".next",
+  "regions": ["fra1"],
+  "github": {
+    "silent": true
+  },
+  "env": {
+    "NEXTAUTH_URL": {
+      "description": "The URL of your site (in production)"
+    },
+    "NEXTAUTH_SECRET": {
+      "description": "A secret for NextAuth.js (generate with `openssl rand -base64 32`)"
+    },
+    "GOOGLE_CLIENT_ID": {
+      "description": "Google OAuth Client ID"
+    },
+    "GOOGLE_CLIENT_SECRET": {
+      "description": "Google OAuth Client Secret"
+    },
+    "NEXT_PUBLIC_SUPABASE_URL": {
+      "description": "Supabase instance URL"
+    },
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": {
+      "description": "Supabase anonymous key"
+    },
+    "SUPABASE_SERVICE_ROLE_KEY": {
+      "description": "Supabase service role key"
+    }
+  }
+}

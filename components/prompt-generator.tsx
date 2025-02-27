@@ -4,46 +4,53 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X, Info, Check } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export function PromptGenerator({ onGenerateImages }) {
-  // Changed default prompt
-  const defaultPrompt = "full frame image of a {person} scandinavian {pose}";
+  // Changed default prompt to include comma-separated values directly in the brackets without type labels
+  const defaultPrompt = "full frame image of a {woman, man} scandinavian {standing, walking}";
   // Updated suffix
   const promptSuffix = ", head to toe view, studio lighting, set stark against a solid white background";
   
   const [basePrompt, setBasePrompt] = useState(defaultPrompt);
   const [lists, setLists] = useState({});
   const [detectedLists, setDetectedLists] = useState([]);
-  const [newTag, setNewTag] = useState("");
-  const [activeListId, setActiveListId] = useState(null);
-  const [editingTag, setEditingTag] = useState({ listId: null, index: null, value: "" });
   const [generatedPrompts, setGeneratedPrompts] = useState([]);
-  const editInputRef = useRef(null);
 
-  // Detect any {text} patterns in the prompt
+  // Detect any bracket patterns and extract comma-separated values
   useEffect(() => {
-    const regex = /\{([^}]+)\}/g;
+    // Simplified regex to detect any curly brace patterns
+    const regex = /\{([^{}]*)\}/g;
     const matches = [...basePrompt.matchAll(regex)];
-    const listIdentifiers = [...new Set(matches.map(match => match[1].trim()))];
     
-    setDetectedLists(listIdentifiers);
+    // Create a unique ID for each bracket position
+    const bracketPositions = matches.map((match, index) => `bracket_${index}`);
+    setDetectedLists(bracketPositions);
     
-    // Initialize lists object
+    // Initialize lists object with comma-separated values from brackets
     const newLists = { ...lists };
-    listIdentifiers.forEach(id => {
-      if (!newLists[id]) {
-        newLists[id] = [];
-      }
+    
+    // Process each bracket
+    matches.forEach((match, index) => {
+      const bracketId = `bracket_${index}`;
+      const content = match[1];
+      
+      // Extract comma-separated values
+      const values = content.split(',')
+        .map(val => val.trim())
+        .filter(Boolean);
+      
+      // Store values in the lists
+      newLists[bracketId] = values;
     });
     
     // Remove lists that are no longer in the prompt
     Object.keys(newLists).forEach(key => {
-      if (!listIdentifiers.includes(key)) {
+      if (!key.startsWith('bracket_') || !bracketPositions.includes(key)) {
         delete newLists[key];
       }
     });
@@ -51,85 +58,11 @@ export function PromptGenerator({ onGenerateImages }) {
     setLists(newLists);
   }, [basePrompt]);
 
-  // Add example tags when component loads with default prompt
-  useEffect(() => {
-    if (basePrompt === defaultPrompt && 
-        detectedLists.includes("person") && 
-        detectedLists.includes("pose") &&
-        (!lists["person"] || lists["person"].length === 0) && 
-        (!lists["pose"] || lists["pose"].length === 0)) {
-      // Reduced to 2 elements per list
-      setLists({
-        "person": ["woman", "man"],
-        "pose": ["standing", "walking"]
-      });
-    }
-  }, [basePrompt, lists, defaultPrompt, detectedLists]);
+  // We don't need to add examples anymore as we're using comma-separated values in brackets
+  // The effect above will handle parsing values from the prompt
 
-  // Focus on edit input when editing starts
-  useEffect(() => {
-    if (editingTag.listId && editInputRef.current) {
-      editInputRef.current.focus();
-    }
-  }, [editingTag]);
-
-  // Process tag with multiplier syntax (tag*n)
-  const processTagWithMultiplier = (tag) => {
-    const multiplierMatch = tag.match(/^(.+)\*(\d+)$/);
-    if (multiplierMatch) {
-      const baseTag = multiplierMatch[1].trim();
-      const count = parseInt(multiplierMatch[2], 10);
-      return Array(count).fill(baseTag);
-    }
-    return [tag];
-  };
-
-  // Add a new tag to a list
-  const addTag = (listId, tagText) => {
-    if (!tagText?.trim()) return;
-    
-    const processedTags = processTagWithMultiplier(tagText.trim());
-    
-    setLists(prev => ({
-      ...prev,
-      [listId]: [...(prev[listId] || []), ...processedTags]
-    }));
-  };
-
-  // Remove a tag from a list
-  const removeTag = (listId, index) => {
-    setLists(prev => ({
-      ...prev,
-      [listId]: prev[listId].filter((_, i) => i !== index)
-    }));
-  };
-
-  // Start editing a tag
-  const startEditTag = (listId, index, value) => {
-    setEditingTag({ listId, index, value });
-  };
-
-  // Complete tag editing
-  const completeTagEdit = () => {
-    if (editingTag.listId && editingTag.value.trim()) {
-      setLists(prev => {
-        const newList = [...prev[editingTag.listId]];
-        newList[editingTag.index] = editingTag.value.trim();
-        return { ...prev, [editingTag.listId]: newList };
-      });
-    }
-    setEditingTag({ listId: null, index: null, value: "" });
-  };
-
-  // Handle key press in tag editing
-  const handleEditKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      completeTagEdit();
-    } else if (e.key === 'Escape') {
-      setEditingTag({ listId: null, index: null, value: "" });
-    }
-  };
+  // We're now handling all tag editing directly in the prompt text
+  // No need for separate editing functions
 
   // Generate all prompt permutations
   const generatePermutations = useCallback(() => {
@@ -204,6 +137,96 @@ export function PromptGenerator({ onGenerateImages }) {
     return colors[colorIndex];
   };
 
+  // Create a styled input component that highlights {...} sections
+  const InlinePromptInput = () => {
+    const textAreaRef = useRef(null);
+    
+    // Split the prompt into parts that are inside and outside curly braces
+    const renderStyledPrompt = () => {
+      const regex = /(\{[^{}]*\})/g;
+      const parts = basePrompt.split(regex);
+      
+      // Count brackets to alternate colors
+      let bracketCount = 0;
+      
+      // Define Figma colors for different bracket sets
+      const bracketColors = [
+        ["bg-[#A259FF] text-white", "bg-[#F24E1E] text-white"], // Purple, Red for first bracket
+        ["bg-[#1ABCFE] text-white", "bg-[#0ACF83] text-white"]  // Blue, Green for second bracket
+      ];
+      
+      return (
+        <div 
+          className="min-h-[80px] relative border rounded-md p-2 bg-background"
+          onClick={() => textAreaRef.current?.focus()}
+        >
+          <div className="absolute inset-0 pointer-events-none overflow-hidden p-2">
+            {parts.map((part, i) => {
+              if (part.startsWith('{') && part.endsWith('}')) {
+                // This is a placeholder - extract content without braces
+                const content = part.substring(1, part.length - 1);
+                
+                // Increment bracket counter to alternate colors
+                const colorSet = bracketColors[bracketCount % bracketColors.length];
+                bracketCount++;
+                
+                // Check if there are comma-separated values
+                if (content.includes(',')) {
+                  // Split comma-separated values
+                  const values = content.split(',').map(v => v.trim());
+                  
+                  return (
+                    <span key={i} className="inline-flex items-center flex-wrap">
+                      <span className="text-muted-foreground mx-0.5">{`{`}</span>
+                      {values.map((value, idx) => (
+                        <span key={`${i}-${idx}`} className="inline-flex items-center">
+                          <span 
+                            className={cn(
+                              "px-1 py-0.5 mx-0.5 text-xs rounded-md inline", 
+                              colorSet[idx % colorSet.length]
+                            )}
+                          >
+                            {value}
+                          </span>
+                          {idx < values.length - 1 && (
+                            <span className="text-muted-foreground">,</span>
+                          )}
+                        </span>
+                      ))}
+                      <span className="text-muted-foreground mx-0.5">{`}`}</span>
+                    </span>
+                  );
+                } else {
+                  // Single value - use the current bracket's color set
+                  return (
+                    <span 
+                      key={i}
+                      className={cn("px-1 py-0.5 mx-0.5 text-xs rounded-md inline", 
+                        colorSet[0])}
+                    >
+                      {part}
+                    </span>
+                  );
+                }
+              }
+              // Regular text
+              return <span key={i}>{part}</span>;
+            })}
+          </div>
+          
+          <textarea
+            ref={textAreaRef}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-text resize-none p-2"
+            value={basePrompt}
+            onChange={(e) => setBasePrompt(e.target.value)}
+          />
+        </div>
+      );
+    };
+    
+    return renderStyledPrompt();
+  };
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -216,117 +239,20 @@ export function PromptGenerator({ onGenerateImages }) {
               </TooltipTrigger>
               <TooltipContent>
               <p className="text-xs max-w-[200px]">
-                Bruk {"{person}"}, {"{pose}"} som plasshaldarar. For fleire variantar, 
-                bruk {"{person*3}"}-syntaksen for å gjenta ein tag 3 gongar.
+                Skriv tekst med {"{person}"}, {"{pose}"} som blir erstatta med tags.
+                Bruk komma til å skilje tags inni klammane.
               </p>
             </TooltipContent>
-
             </Tooltip>
           </TooltipProvider>
         </div>
-        <Textarea
-          id="prompt"
-          placeholder="Enter prompt with {placeholders} in curly braces"
-          value={basePrompt}
-          onChange={(e) => setBasePrompt(e.target.value)}
-          className="min-h-[80px]"
-        />
+        
+        {/* Use the styled input component instead of regular textarea */}
+        <InlinePromptInput />
       </div>
 
       {detectedLists.length > 0 && (
         <div className="space-y-3">
-          {detectedLists.map(listId => (
-            <Card key={listId} className="p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium">{listId} ({lists[listId]?.length || 0})</span>
-              </div>
-              
-              <div className="flex flex-wrap gap-2 min-h-[40px] items-center">
-                {lists[listId]?.map((tag, index) => (
-                  <div key={index} className="relative">
-                    {editingTag.listId === listId && editingTag.index === index ? (
-                      <div className="flex items-center">
-                        <input
-                          ref={editInputRef}
-                          type="text"
-                          className="h-7 px-2 py-0 text-xs border rounded-full focus:outline-none focus:ring-1 focus:ring-primary w-[120px]"
-                          value={editingTag.value}
-                          onChange={(e) => setEditingTag({...editingTag, value: e.target.value})}
-                          onKeyDown={handleEditKeyPress}
-                          onBlur={completeTagEdit}
-                        />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-5 w-5 ml-1"
-                          onClick={completeTagEdit}
-                        >
-                          <Check className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    ) : (
-                      <Badge 
-                        className={`px-3 py-1 text-xs rounded-full ${getTagColor(listId, index)} cursor-pointer group`}
-                        onClick={() => startEditTag(listId, index, tag)}
-                      >
-                        <span className="group-hover:underline">{tag}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-4 w-4 ml-1 -mr-1 text-white/90 hover:text-white hover:bg-transparent opacity-70 group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeTag(listId, index);
-                          }}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                        <span className="sr-only">Edit</span>
-                      </Badge>
-                    )}
-                  </div>
-                ))}
-                
-                <Badge 
-                  className="bg-muted text-muted-foreground hover:bg-muted/80 px-2 py-1 rounded-full cursor-pointer h-6 w-6 flex items-center justify-center"
-                  onClick={() => setActiveListId(listId)}
-                >
-                  <Plus className="h-3 w-3" />
-                </Badge>
-                
-                {activeListId === listId && (
-                  <div className="flex items-center">
-                    <input
-                      autoFocus
-                      type="text"
-                      className="h-7 px-2 py-0 text-xs border rounded-full focus:outline-none focus:ring-1 focus:ring-primary w-[120px]"
-                      placeholder="Add tag or tag*n..."
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          addTag(listId, newTag);
-                          setNewTag("");
-                        } else if (e.key === 'Escape') {
-                          setActiveListId(null);
-                          setNewTag("");
-                        }
-                      }}
-                      onBlur={() => {
-                        if (newTag.trim()) {
-                          addTag(listId, newTag);
-                        }
-                        setActiveListId(null);
-                        setNewTag("");
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </Card>
-          ))}
-          
           <Button 
             variant="default" 
             size="sm"

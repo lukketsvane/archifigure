@@ -8,10 +8,10 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ModelViewer } from "@/components/model-viewer";
 import { PredictionsGrid } from "@/components/predictions-grid";
-import { Upload, Download, X, CheckCircle2, Image as ImageIcon, ChevronUp, ChevronDown, ChevronRight, Settings, FolderPlus, Github, LayoutGrid } from "lucide-react";
+import { Upload, Download, X, CheckCircle2, Image as ImageIcon, ChevronUp, ChevronDown, ChevronRight, Settings, FolderPlus, LayoutGrid, Github } from "lucide-react";
 import Image from "next/image";
 import { generateModel, uploadImage, getProjects, checkAndStoreCompletedPredictions } from "./actions";
-import PasswordLock from "@/components/password-lock";
+// Password lock removed
 import { toast } from "sonner";
 import { ImageGeneration } from "@/components/image-generation";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -19,7 +19,7 @@ import { MobileGallery } from "@/components/mobile-gallery";
 import { ProjectDialog } from "@/components/project-dialog";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useTheme } from "next-themes";
+// Theme provider removed
 import { useDropzone } from "react-dropzone";
 import { Project } from "@/types/database";
 
@@ -98,8 +98,8 @@ export default function ModelGenerator() {
     octree_resolution: 256,
     remove_background: true,
   });
-  const { theme } = useTheme();
-  const isDarkMode = theme === "dark";
+  // Dark mode removed
+  const isDarkMode = false;
 
   useEffect(() => {
     const loadProjects = async () => {
@@ -111,6 +111,20 @@ export default function ModelGenerator() {
       }
     };
     loadProjects();
+    
+    // Setup event listener for gallery open from navbar
+    const handleGalleryOpen = () => {
+      if (window.innerWidth >= 768) {
+        setDesktopGalleryOpen(true);
+      } else {
+        setMobileGalleryOpen(true);
+      }
+    };
+    window.addEventListener('openGallery', handleGalleryOpen);
+    
+    return () => {
+      window.removeEventListener('openGallery', handleGalleryOpen);
+    };
   }, []);
 
   // Auto-check for completed predictions every 30 seconds
@@ -231,30 +245,8 @@ export default function ModelGenerator() {
   const figmaColors = { purple: "#A259FF", red: "#F24E1E", blue: "#1ABCFE", green: "#0ACF83" };
 
   return (
-    <PasswordLock>
       <div className="relative h-[100dvh] w-full overflow-hidden flex flex-col">
-        <div className="border-b">
-          <div className="flex h-12 items-center px-2 sm:px-4 max-w-screen-2xl mx-auto">
-            <div className="flex items-center space-x-2 font-semibold text-lg">
-              <img
-                src={isDarkMode ? "https://i.ibb.co/v4wcBzGK/logo-default.png" : "https://i.ibb.co/BV7rr4z2/logo-default.png"}
-                alt="ArchiFigure Logo"
-                className="h-7 w-auto"
-              />
-            </div>
-            <div className="ml-auto flex items-center space-x-2">
-              <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden" onClick={() => setMobileGalleryOpen(true)}>
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 hidden md:inline-flex" onClick={() => setDesktopGalleryOpen(true)}>
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-              <Link href="https://github.com/lukketsvane/archifigure/" target="_blank" rel="noreferrer" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-                <Github className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-        </div>
+        {/* Second navbar removed */}
         
         <MobileGallery
           isOpen={mobileGalleryOpen}
@@ -346,129 +338,31 @@ export default function ModelGenerator() {
                       </div>
                     </div>
                     
-                    <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="flex w-full justify-start px-2 text-xs text-muted-foreground hover:text-foreground h-7">
-                          <Settings className="h-3 w-3 mr-1" />
-                          <span>Avanserte innstillingar</span>
-                          <ChevronRight className={`h-3 w-3 ml-auto transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
-                        </Button>
-                      </CollapsibleTrigger>
-                      
-                      <CollapsibleContent className="pt-2 space-y-2">
-                        <div className="space-y-1">
-                          <Slider
-                            id="steps"
-                            min={20}
-                            max={50}
-                            step={1}
-                            value={[formData.steps]}
-                            onValueChange={([steps]) => setFormData({ ...formData, steps })}
-                            className="py-0.5"
-                          />
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Steg: {formData.steps}</span>
-                          </div>
-                        </div>
-                        
-                        <div className="space-y-1">
-                          <Slider
-                            id="guidance"
-                            min={1}
-                            max={20}
-                            step={0.1}
-                            value={[formData.guidance_scale]}
-                            onValueChange={([guidance_scale]) => setFormData({ ...formData, guidance_scale })}
-                            className="py-0.5"
-                          />
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Rettleiing: {formData.guidance_scale.toFixed(1)}</span>
-                          </div>
-                        </div>
-                        
-                        <div className="flex justify-between gap-2">
-                          <div className="flex-1">
-                            <div className="flex">
-                              <input
-                                type="number"
-                                value={formData.seed}
-                                onChange={(e) => setFormData({ ...formData, seed: Number(e.target.value) })}
-                                className="h-7 w-full bg-background rounded-l-md border border-input px-2 py-1 text-xs ring-offset-background"
-                              />
-                              <Button 
-                                type="button"
-                                size="icon" 
-                                variant="outline" 
-                                className="h-7 w-7 rounded-l-none"
-                                onClick={() => setFormData({...formData, seed: Math.floor(Math.random() * 10000)})}
-                              >
-                                🎲
-                              </Button>
-                            </div>
-                            <div className="text-xs text-muted-foreground mt-1">Seed</div>
-                          </div>
-                          
-                          <div className="flex-1">
-                            <Select
-                              value={formData.octree_resolution.toString()}
-                              onValueChange={(value) => setFormData({ ...formData, octree_resolution: Number(value) })}
-                            >
-                              <SelectTrigger className="h-7 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="256">256 - rask</SelectItem>
-                                <SelectItem value="384">384 - Medium</SelectItem>
-                                <SelectItem value="512">512 - detaljert</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <div className="text-xs text-muted-foreground mt-1">Quality</div>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="background"
-                            checked={formData.remove_background}
-                            onCheckedChange={(checked) =>
-                              setFormData({ ...formData, remove_background: checked as boolean })
-                            }
-                          />
-                          <span className="text-xs">Fjern Bakgrunn</span>
-                        </div>
-                        
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="autoGenerate"
-                            checked={autoGenerateMeshes}
-                            onCheckedChange={(checked) => setAutoGenerateMeshes(checked as boolean)}
-                          />
-                          <span className="text-xs">Automatisk generer figurar</span>
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
+                    {/* Advanced settings removed */}
                     
-                    <Button
-                      type="submit"
-                      className="w-full h-9 text-sm relative overflow-hidden"
-                      style={{ 
-                        background: loading 
-                          ? "#666" 
-                          : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
-                      }}
-                      disabled={loading || imageUrls.length === 0}
-                    >
-                      <span className="mr-auto">
-                        {loading ? (
-                          <span className="flex items-center">
-                            <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                            Snekrar modell
-                          </span>
-                        ) : (
-                          "Lag 3D modell"
-                        )}
-                      </span>
-                    </Button>
+                    {imageUrls.length > 0 && (
+                      <Button
+                        type="submit"
+                        className="w-full h-9 text-sm relative overflow-hidden"
+                        style={{ 
+                          background: loading 
+                            ? "#666" 
+                            : `linear-gradient(90deg, ${figmaColors.blue}, ${figmaColors.purple})` 
+                        }}
+                        disabled={loading}
+                      >
+                        <span className="mr-auto">
+                          {loading ? (
+                            <span className="flex items-center">
+                              <span className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                              Snekrar modell
+                            </span>
+                          ) : (
+                            "Lag 3D modell"
+                          )}
+                        </span>
+                      </Button>
+                    )}
                   </form>
                 </TabsContent>
                 <TabsContent value="instructions" className="space-y-3">
@@ -607,6 +501,5 @@ export default function ModelGenerator() {
           </div>
         </div>
       </div>
-    </PasswordLock>
   );
 }
